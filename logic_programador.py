@@ -1,467 +1,63 @@
-# =========================================================
-# LOGIC_PROGRAMADOR.PY
-# =========================================================
-
 import streamlit as st
-import pandas as pd
 import io
-import holidays
-
+import pandas as pd
 from datetime import datetime, timedelta
+
 from github import Github
+import streamlit as st
 
-# =========================================================
-# CONFIG
-# =========================================================
-
-GRUPOS = ["Grupo 1", "Grupo 2", "Grupo 3", "Grupo 4"]
-
-TURNOS = ["T1", "T2", "T3", "DESC", "COMP"]
-
-# =========================================================
-# PERSONAL
-# =========================================================
-
-PERSONAL = {
-
-    "Grupo 1": [
-        {"Nombre": "Juan Perez", "Cedula": "1010"},
-        {"Nombre": "Maria Lopez", "Cedula": "2020"}
-    ],
-
-    "Grupo 2": [
-        {"Nombre": "Carlos Ruiz", "Cedula": "3030"},
-        {"Nombre": "Ana Torres", "Cedula": "4040"}
-    ],
-
-    "Grupo 3": [
-        {"Nombre": "Pedro Diaz", "Cedula": "5050"},
-        {"Nombre": "Luisa Mora", "Cedula": "6060"}
-    ],
-
-    "Grupo 4": [
-        {"Nombre": "Jorge Silva", "Cedula": "7070"},
-        {"Nombre": "Paula Rojas", "Cedula": "8080"}
-    ]
-}
-
-# =========================================================
-# GITHUB
-# =========================================================
+# =====================================
+# CONEXIÓN GITHUB
+# =====================================
 
 def conectar_github():
 
     try:
-
         if "GITHUB_TOKEN" not in st.secrets:
-
-            st.error("❌ Token GITHUB_TOKEN no configurado.")
+            st.error(
+                "❌ Token GITHUB_TOKEN no configurado"
+            )
             return None
 
-        return Github(
+        g = Github(
             st.secrets["GITHUB_TOKEN"]
-        ).get_repo("RichGuep/movilgo")
+        )
+
+        repo = g.get_repo(
+            "RichGuep/movilgo"
+        )
+
+        return repo
 
     except Exception as e:
-
-        st.error(f"Error GitHub: {e}")
+        st.error(
+            f"Error GitHub: {e}"
+        )
         return None
 
+# inicio pantallas
+
+def pantalla_tecnicos():
+    st.title("👷 Programador Técnicos")
+    st.success("Módulo técnicos funcionando")
+
+    
 # =========================================================
-# HISTÓRICO
+# PERSONAL ABORDAJE
 # =========================================================
-
-def obtener_ultimo_estado_github(repo):
-
-    try:
-
-        contents = repo.get_contents(
-            "malla_historica.xlsx"
-        )
-
-        df_hist = pd.read_excel(
-            io.BytesIO(contents.decoded_content)
-        )
-
-        df_hist["Fecha_Raw"] = pd.to_datetime(
-            df_hist["Fecha_Raw"]
-        )
-
-        estado = {}
-
-        for g in GRUPOS:
-
-            regs = (
-                df_hist[df_hist["Grupo"] == g]
-                .sort_values("Fecha_Raw")
-            )
-
-            if not regs.empty:
-
-                u = regs.iloc[-1]
-
-                estado[g] = {
-
-                    "u": u["Turno"],
-
-                    "n": int(
-                        u.get("Noches_Acum", 0)
-                    ) if u["Turno"] == "T3" else 0,
-
-                    "d": int(
-                        u.get(
-                            "Deuda_Compensatorio",
-                            0
-                        )
-                    )
-                }
-
-            else:
-
-                estado[g] = {
-                    "u": "DESC",
-                    "n": 0,
-                    "d": 0
-                }
-
-        return estado
-
-    except:
-
-        return {
-
-            g: {
-                "u": "DESC",
-                "n": 0,
-                "d": 0
-            }
-
-            for g in GRUPOS
-        }
-
-# =========================================================
-# GUARDAR HISTÓRICO
-# =========================================================
-
-def guardar_malla_en_historico(df_nueva):
-
-    repo = conectar_github()
-
-    if not repo:
-        return
-
-    try:
-
-        try:
-
-            contents = repo.get_contents(
-                "malla_historica.xlsx"
-            )
-
-            df_previo = pd.read_excel(
-                io.BytesIO(contents.decoded_content)
-            )
-
-            df_previo["Fecha_Raw"] = pd.to_datetime(
-                df_previo["Fecha_Raw"]
-            )
-
-            df_final = pd.concat(
-                [df_previo, df_nueva]
-            ).drop_duplicates(
-                subset=["Grupo", "Fecha_Raw"],
-                keep="last"
-            )
-
-        except:
-
-            df_final = df_nueva
-
-        output = io.BytesIO()
-
-        with pd.ExcelWriter(
-            output,
-            engine="openpyxl"
-        ) as writer:
-
-            df_final.to_excel(
-                writer,
-                index=False
-            )
-
-        try:
-
-            contents = repo.get_contents(
-                "malla_historica.xlsx"
-            )
-
-            repo.update_file(
-
-                "malla_historica.xlsx",
-
-                "Actualización automática",
-
-                output.getvalue(),
-
-                contents.sha
-
-            )
-
-        except:
-
-            repo.create_file(
-
-                "malla_historica.xlsx",
-
-                "Creación inicial",
-
-                output.getvalue()
-
-            )
-
-        st.success("✅ Histórico sincronizado")
-
-    except Exception as e:
-
-        st.error(
-            f"Error guardando histórico: {e}"
-        )
-
-# =========================================================
-# VALIDADORES
-# =========================================================
-
-def es_cambio_saludable(ayer, hoy):
-
-    if ayer in ["DESC", "COMP", "OFF"]:
-        return True
-
-    if hoy in ["DESC", "COMP", "OFF"]:
-        return True
-
-    jerarquia = {
-
-        "T1": 1,
-        "T2": 2,
-        "T3": 3
-
-    }
-
-    return (
-        jerarquia.get(hoy, 0)
-        >= jerarquia.get(ayer, 0)
-    )
-
-# =========================================================
-# ROTACIÓN DESCANSOS
-# =========================================================
-
-def rotar_descansos(
-    fecha,
-    descansos_base,
-    activar_rotacion,
-    tipo_rotacion
-):
-
-    if not activar_rotacion:
-        return descansos_base
-
-    dias = list(descansos_base.values())
-
-    # =============================================
-    # CICLO
-    # =============================================
-
-    if tipo_rotacion == "Mensual":
-
-        ciclo = fecha.month - 1
-
-    else:
-
-        ciclo = (
-            (fecha.month - 1) * 2
-        )
-
-        if fecha.day > 15:
-            ciclo += 1
-
-    # =============================================
-    # ROTAR
-    # =============================================
-
-    rotacion = ciclo % len(dias)
-
-    dias_rotados = (
-        dias[rotacion:]
-        +
-        dias[:rotacion]
-    )
-
-    return {
-
-        grupo: dias_rotados[i]
-
-        for i, grupo in enumerate(
-            descansos_base.keys()
-        )
-    }
-
-# =========================================================
-# COLORES
-# =========================================================
-
-def color_turno(val):
-
-    colores = {
-
-        "T1": """
-            background-color:#1976D2;
-            color:white;
-            font-weight:bold;
-            text-align:center;
-        """,
-
-        "T2": """
-            background-color:#2E7D32;
-            color:white;
-            font-weight:bold;
-            text-align:center;
-        """,
-
-        "T3": """
-            background-color:#424242;
-            color:white;
-            font-weight:bold;
-            text-align:center;
-        """,
-
-        "DESC": """
-            background-color:#C62828;
-            color:white;
-            font-weight:bold;
-            text-align:center;
-        """,
-
-        "COMP": """
-            background-color:#EF6C00;
-            color:white;
-            font-weight:bold;
-            text-align:center;
-        """
-    }
-
-    return colores.get(val, "")
-
-# =========================================================
-# AUDITORÍA
-# =========================================================
-
-def auditar_malla(df):
-
-    st.divider()
-
-    st.header("🛡️ Auditoría Operacional")
-
-    col1, col2 = st.columns(2)
-
-    # =============================================
-    # SALTOS
-    # =============================================
-
-    with col1:
-
-        st.subheader("🚩 Saltos Riesgosos")
-
-        alertas = []
-
-        for g in df["Grupo"].unique():
-
-            g_data = (
-                df[df["Grupo"] == g]
-                .sort_values("Fecha_Raw")
-            )
-
-            for i in range(1, len(g_data)):
-
-                ayer = g_data.iloc[i - 1]["Turno"]
-                hoy = g_data.iloc[i]["Turno"]
-
-                fecha = g_data.iloc[i]["Fecha_Col"]
-
-                if not es_cambio_saludable(
-                    ayer,
-                    hoy
-                ):
-
-                    alertas.append(
-                        f"{g}: {ayer} → {hoy} ({fecha})"
-                    )
-
-        if alertas:
-
-            for a in alertas:
-                st.error(a)
-
-        else:
-
-            st.success(
-                "✅ Sin saltos riesgosos"
-            )
-
-    # =============================================
-    # COBERTURA
-    # =============================================
-
-    with col2:
-
-        st.subheader("📡 Cobertura")
-
-        cobertura = (
-            df.groupby(
-                ["Fecha_Col", "Turno"]
-            )
-            .size()
-            .unstack(fill_value=0)
-        )
-
-        alertas = []
-
-        for fecha in cobertura.index:
-
-            for t in ["T1", "T2", "T3"]:
-
-                if (
-                    t not in cobertura.columns
-                    or cobertura.loc[fecha, t] == 0
-                ):
-
-                    alertas.append(
-                        f"Falta {t} el {fecha}"
-                    )
-
-        if alertas:
-
-            for a in alertas:
-                st.warning(a)
-
-        else:
-
-            st.success(
-                "✅ Cobertura completa"
-            )
-
-# =========================================================
-# PANTALLA PRINCIPAL
-# =========================================================
-
-def pantalla_programador():
-
-    st.title(
-        "📅 Programador Maestro MovilGo"
-    )
+def pantalla_abordaje():
+
+    st.header("🚌 Programador Personal Abordaje")
+
+    GRUPOS_AB = [
+        "Grupo A",
+        "Grupo B",
+        "Grupo C",
+        "Grupo D",
+        "Grupo E"
+    ]
 
     dias_semana = [
-
         "Lunes",
         "Martes",
         "Miércoles",
@@ -469,688 +65,391 @@ def pantalla_programador():
         "Viernes",
         "Sábado",
         "Domingo"
-
     ]
 
-    # =====================================================
-    # CONFIG
-    # =====================================================
+    # ============================================
+    # CARGAR PERSONAL DESDE empleados.xlsx
+    # ============================================
 
-    with st.container(border=True):
+    repo = conectar_github()
 
-        st.subheader("⚙️ Configuración")
+    if not repo:
+        return
 
-        col1, col2 = st.columns([2, 1])
+    try:
+        contents = repo.get_contents("empleados.xlsx")
 
-        # =============================================
-        # DESCANSOS
-        # =============================================
+        df_emp = pd.read_excel(
+            io.BytesIO(contents.decoded_content)
+        )
 
-        with col1:
+        df_emp.columns = df_emp.columns.str.strip()
 
-            d_g1 = st.selectbox(
-                "Descanso Grupo 1",
-                dias_semana,
-                index=0
+        # Filtrar personal de abordaje por Cargo
+        df_ab = df_emp[
+            df_emp["Cargo"]
+            .astype(str)
+            .str.contains(
+                "Auxiliar de Abordaje",
+                case=False,
+                na=False
             )
+        ]
 
-            d_g2 = st.selectbox(
-                "Descanso Grupo 2",
-                dias_semana,
-                index=4
+        if df_ab.empty:
+            st.error(
+                "No se encontró personal de abordaje."
             )
+            return
 
-            d_g3 = st.selectbox(
-                "Descanso Grupo 3",
-                dias_semana,
-                index=5
-            )
+        st.success(
+            f"Personal abordaje cargado: {len(df_ab)} personas"
+        )
 
-            d_g4 = st.selectbox(
-                "Descanso Grupo 4",
-                dias_semana,
-                index=6
-            )
+    except Exception as e:
+        st.error(
+            f"Error cargando abordaje: {e}"
+        )
+        return
 
-            descansos_base = {
+    # ============================================
+    # CREAR GRUPOS AUTOMÁTICOS
+    # ============================================
 
-                "Grupo 1": dias_semana.index(d_g1),
-                "Grupo 2": dias_semana.index(d_g2),
-                "Grupo 3": dias_semana.index(d_g3),
-                "Grupo 4": dias_semana.index(d_g4)
+    personal_grupos = {}
 
-            }
+    nombres = list(df_ab["Nombre"])
 
-        # =============================================
-        # STAFFING
-        # =============================================
+    for i, grupo in enumerate(GRUPOS_AB):
 
-        with col2:
+        inicio = i * 5
+        fin = inicio + 5
 
-            req_lider = st.number_input(
-                "Masters",
-                1,
-                10,
-                1
-            )
+        personal_grupos[grupo] = nombres[
+            inicio:fin
+        ]
 
-            req_tecnico = st.number_input(
-                "Técnicos A",
-                1,
-                20,
-                3
-            )
-
-            req_aux = st.number_input(
-                "Técnicos B",
-                0,
-                20,
-                2
-            )
-
-    # =====================================================
-    # ROTACIÓN AUTOMÁTICA
-    # =====================================================
+    # ============================================
+    # PARAMETRIZADOR DESCANSOS
+    # ============================================
 
     st.subheader(
-        "🔄 Rotación Automática Descansos"
+        "📅 Parametrizador de Descansos"
     )
 
-    r1, r2 = st.columns(2)
+    c1, c2 = st.columns(2)
 
-    with r1:
+    d_a = c1.selectbox(
+        "Grupo A",
+        dias_semana,
+        index=0,
+        key="ab_a"
+    )
 
-        activar_rotacion = st.toggle(
-            "Activar Rotación",
-            value=True
-        )
+    d_b = c2.selectbox(
+        "Grupo B",
+        dias_semana,
+        index=1,
+        key="ab_b"
+    )
 
-    with r2:
+    d_c = c1.selectbox(
+        "Grupo C",
+        dias_semana,
+        index=2,
+        key="ab_c"
+    )
 
-        tipo_rotacion = st.selectbox(
+    d_d = c2.selectbox(
+        "Grupo D",
+        dias_semana,
+        index=3,
+        key="ab_d"
+    )
 
-            "Frecuencia",
+    d_e = c1.selectbox(
+        "Grupo E",
+        dias_semana,
+        index=4,
+        key="ab_e"
+    )
 
-            [
-                "Mensual",
-                "Quincenal"
-            ]
-        )
+    descansos = {
+        "Grupo A": dias_semana.index(d_a),
+        "Grupo B": dias_semana.index(d_b),
+        "Grupo C": dias_semana.index(d_c),
+        "Grupo D": dias_semana.index(d_d),
+        "Grupo E": dias_semana.index(d_e)
+    }
 
-    if activar_rotacion:
-
-        st.info(
-            f"""
-🔄 Rotación automática activa:
-{tipo_rotacion}
-"""
-        )
-
-    # =====================================================
+    # ============================================
     # HORARIOS
-    # =====================================================
+    # ============================================
 
-    st.subheader("⏰ Horarios Turnos")
+    st.subheader("⏰ Horarios")
 
     h1, h2, h3 = st.columns(3)
 
     with h1:
 
-        st.markdown("### 🟦 T1")
+        st.markdown("### T1")
 
-        hora_inicio_t1 = st.time_input(
+        inicio_t1 = st.time_input(
             "Inicio T1",
-            value=datetime.strptime(
+            datetime.strptime(
                 "06:00",
                 "%H:%M"
-            ).time()
+            ).time(),
+            key="t1i"
         )
 
-        hora_fin_t1 = st.time_input(
+        fin_t1 = st.time_input(
             "Fin T1",
-            value=datetime.strptime(
+            datetime.strptime(
                 "14:00",
                 "%H:%M"
-            ).time()
+            ).time(),
+            key="t1f"
         )
 
     with h2:
 
-        st.markdown("### 🟩 T2")
+        st.markdown("### T2")
 
-        hora_inicio_t2 = st.time_input(
+        inicio_t2 = st.time_input(
             "Inicio T2",
-            value=datetime.strptime(
+            datetime.strptime(
                 "14:00",
                 "%H:%M"
-            ).time()
+            ).time(),
+            key="t2i"
         )
 
-        hora_fin_t2 = st.time_input(
+        fin_t2 = st.time_input(
             "Fin T2",
-            value=datetime.strptime(
+            datetime.strptime(
                 "22:00",
                 "%H:%M"
-            ).time()
+            ).time(),
+            key="t2f"
         )
 
     with h3:
 
-        st.markdown("### ⬛ T3")
+        st.markdown("### TR")
 
-        hora_inicio_t3 = st.time_input(
-            "Inicio T3",
-            value=datetime.strptime(
-                "22:00",
+        inicio_tr = st.time_input(
+            "Inicio TR",
+            datetime.strptime(
+                "10:00",
                 "%H:%M"
-            ).time()
+            ).time(),
+            key="tri"
         )
 
-        hora_fin_t3 = st.time_input(
-            "Fin T3",
-            value=datetime.strptime(
-                "06:00",
+        fin_tr = st.time_input(
+            "Fin TR",
+            datetime.strptime(
+                "18:00",
                 "%H:%M"
-            ).time()
+            ).time(),
+            key="trf"
         )
 
-    HORARIOS = {
-
-        "T1": {
-            "inicio": str(hora_inicio_t1),
-            "fin": str(hora_fin_t1)
-        },
-
-        "T2": {
-            "inicio": str(hora_inicio_t2),
-            "fin": str(hora_fin_t2)
-        },
-
-        "T3": {
-            "inicio": str(hora_inicio_t3),
-            "fin": str(hora_fin_t3)
-        }
-    }
-
-    # =====================================================
-    # FECHAS
-    # =====================================================
+    # ============================================
+    # PERIODO
+    # ============================================
 
     st.subheader("📆 Periodo")
 
-    c1, c2 = st.columns(2)
+    f1, f2 = st.columns(2)
 
-    f_ini = c1.date_input(
+    fecha_ini = f1.date_input(
         "Inicio",
-        datetime.now()
+        datetime.now(),
+        key="ab_fi"
     )
 
-    f_fin = c2.date_input(
+    fecha_fin = f2.date_input(
         "Fin",
-        datetime.now() + timedelta(days=14)
+        datetime.now() + timedelta(days=14),
+        key="ab_ff"
     )
 
-    # =====================================================
-    # GENERAR
-    # =====================================================
+    # ============================================
+    # BOTÓN GENERAR
+    # ============================================
 
-    if st.button("🚀 Generar Malla"):
-
-        repo = conectar_github()
-
-        estado_ayer = obtener_ultimo_estado_github(
-            repo
-        )
-
-        lista_fechas = [
-
-            f_ini + timedelta(days=x)
-
-            for x in range(
-                (f_fin - f_ini).days + 1
-            )
-        ]
+    if st.button("🚀 Generar Malla Abordaje"):
 
         resultados = []
 
-        mem_t = {
+        fechas = [
+            fecha_ini + timedelta(days=x)
+            for x in range(
+                (fecha_fin - fecha_ini).days + 1
+            )
+        ]
 
-            g: estado_ayer[g]["u"]
+        conteo_tr = {}
 
-            for g in GRUPOS
-        }
+        for grupo in GRUPOS_AB:
+            for persona in personal_grupos[grupo]:
+                conteo_tr[persona] = 0
 
-        mem_n = {
-
-            g: estado_ayer[g]["n"]
-
-            for g in GRUPOS
-        }
-
-        co_h = holidays.Colombia(
-            years=[2024, 2025, 2026]
-        )
-
-        for fecha in lista_fechas:
+        for fecha in fechas:
 
             fecha_dt = pd.to_datetime(fecha)
 
-            # =========================================
-            # ROTACIÓN DESCANSOS
-            # =========================================
-
-            map_idx = rotar_descansos(
-
-                fecha_dt,
-
-                descansos_base,
-
-                activar_rotacion,
-
-                tipo_rotacion
-            )
-
-            dia_idx = fecha_dt.weekday()
+            dia_semana = fecha_dt.weekday()
 
             semana = fecha_dt.isocalendar()[1]
 
-            es_fest = fecha_dt in co_h
+            # ==============================
+            # identificar grupo descanso
+            # ==============================
 
-            col_name = (
-                f"{fecha_dt.strftime('%a %d/%m')}"
-                f"{' 🇨🇴' if es_fest else ''}"
-            )
-
-            libranza_hoy = [
-
-                g for g, idx in map_idx.items()
-
-                if idx == dia_idx
+            grupos_descanso = [
+                g for g, d in descansos.items()
+                if d == dia_semana
             ]
 
-            activos = [
+            if not grupos_descanso:
+                st.error(
+                    f"No hay grupo configurado para descansar el día {dias_semana[dia_semana]}"
+                )
+                return
 
-                g for g in GRUPOS
+            if len(grupos_descanso) > 1:
+                st.error(
+                    f"Hay varios grupos descansando el mismo día ({dias_semana[dia_semana]}). Cada grupo debe tener un día diferente."
+                )
+                return
 
-                if g not in libranza_hoy
+            grupo_descanso = grupos_descanso[0]
+
+            grupos_activos = [
+                g for g in GRUPOS_AB
+                if g != grupo_descanso
             ]
 
-            turnos_hoy = {}
+            # ==============================
+            # rotación semanal
+            # ==============================
 
-            # =========================================
-            # ASIGNACIÓN TURNOS
-            # =========================================
+            if semana % 2 == 0:
+                grupos_t1 = grupos_activos[:2]
+                grupos_t2 = grupos_activos[2:]
+            else:
+                grupos_t2 = grupos_activos[:2]
+                grupos_t1 = grupos_activos[2:]
 
-            for g in activos:
+            # ==============================
+            # asignar T1
+            # ==============================
 
-                idx_g = GRUPOS.index(g)
-
-                t_sug = (
-                    ["T1", "T2", "T3"]
-                    [(idx_g + semana) % 3]
-                )
-
-                # =============================
-                # VALIDACIÓN SALUDABLE
-                # =============================
-
-                if not es_cambio_saludable(
-                    mem_t[g],
-                    t_sug
-                ):
-
-                    t_sug = mem_t[g]
-
-                # =============================
-                # CONTROL NOCHES
-                # =============================
-
-                if (
-                    mem_n[g] >= 6
-                    and t_sug == "T3"
-                ):
-
-                    t_sug = "T1"
-
-                turnos_hoy[g] = t_sug
-
-            # =========================================
-            # COBERTURA FORZADA
-            # =========================================
-
-            for tr in ["T1", "T2", "T3"]:
-
-                if (
-                    tr not in turnos_hoy.values()
-                    and activos
-                ):
-
-                    for gf in activos:
-
-                        if (
-                            list(
-                                turnos_hoy.values()
-                            ).count(
-                                turnos_hoy[gf]
-                            ) > 1
-                        ):
-
-                            if es_cambio_saludable(
-                                mem_t[gf],
-                                tr
-                            ):
-
-                                turnos_hoy[gf] = tr
-                                break
-
-            # =========================================
-            # GUARDAR
-            # =========================================
-
-            for g in GRUPOS:
-
-                t_final = (
-
-                    "DESC"
-
-                    if g in libranza_hoy
-
-                    else turnos_hoy.get(g, "T1")
-                )
-
-                noches = (
-
-                    mem_n[g] + 1
-
-                    if t_final == "T3"
-
-                    else 0
-                )
-
-                hora_inicio = ""
-                hora_fin = ""
-
-                if t_final in HORARIOS:
-
-                    hora_inicio = HORARIOS[
-                        t_final
-                    ]["inicio"]
-
-                    hora_fin = HORARIOS[
-                        t_final
-                    ]["fin"]
-
+            for g in grupos_t1:
                 resultados.append({
-
+                    "Fecha": fecha_dt,
                     "Grupo": g,
-                    "Fecha_Col": col_name,
-                    "Turno": t_final,
-                    "Fecha_Raw": fecha_dt,
-                    "Hora_Inicio": hora_inicio,
-                    "Hora_Fin": hora_fin,
-                    "Noches_Acum": noches,
-                    "Req_Lider": req_lider,
-                    "Req_Tecnico": req_tecnico,
-                    "Req_Aux": req_aux
-
+                    "Turno": "T1"
                 })
 
-                mem_t[g] = t_final
-                mem_n[g] = noches
+            # ==============================
+            # asignar T2
+            # ==============================
 
-        st.session_state.malla_generada = (
-            pd.DataFrame(resultados)
+            for g in grupos_t2:
+                resultados.append({
+                    "Fecha": fecha_dt,
+                    "Grupo": g,
+                    "Turno": "T2"
+                })
+
+            # ==============================
+            # asignar relevo TR
+            # ==============================
+
+            personas = personal_grupos[grupo_descanso]
+
+            persona_tr = min(
+                personas,
+                key=lambda x: conteo_tr[x]
+            )
+
+            conteo_tr[persona_tr] += 1
+
+            resultados.append({
+                "Fecha": fecha_dt,
+                "Grupo": grupo_descanso,
+                "Turno": "TR",
+                "Persona TR": persona_tr
+            })
+
+        df_malla = pd.DataFrame(
+            resultados
         )
 
-        guardar_malla_en_historico(
-            st.session_state.malla_generada
+        st.session_state["malla_abordaje"] = df_malla
+
+        st.success(
+            "✅ Malla abordaje generada correctamente"
         )
 
-        st.rerun()
-
-    # =====================================================
+    # ============================================
     # VISUALIZAR
-    # =====================================================
+    # ============================================
 
-    if st.session_state.get(
-        "malla_generada"
-    ) is not None:
+    if "malla_abordaje" in st.session_state:
 
-        df_v = (
-            st.session_state
-            .malla_generada
-            .copy()
+        df = st.session_state[
+            "malla_abordaje"
+        ]
+
+        st.subheader(
+            "📋 Malla Grupal"
         )
 
-        df_v["Fecha_Raw"] = pd.to_datetime(
-            df_v["Fecha_Raw"]
-        )
-
-        # =============================================
-        # REGLAS
-        # =============================================
-
-        st.subheader("📋 Reporte Detallado")
-
-        with st.expander(
-            "📖 Reglas Aplicadas",
-            expanded=True
-        ):
-
-            st.markdown("""
-
-### ✅ Reglas Operativas
-
-1. Cada grupo tiene descanso semanal.
-2. Rotación T1 → T2 → T3.
-3. No se permiten saltos:
-   - T3 → T1
-   - T3 → T2
-   - T2 → T1
-4. Máximo 6 noches T3.
-5. Cobertura diaria T1/T2/T3.
-6. Control descansos simultáneos.
-7. Balance operativo.
-8. Índice fatiga.
-9. Festivos automáticos.
-10. Histórico automático.
-11. Rotación automática descansos.
-
-""")
-
-        # =============================================
-        # MATRIZ
-        # =============================================
-
-        matriz = df_v.pivot(
-
+        matriz = df.pivot(
             index="Grupo",
-
-            columns="Fecha_Col",
-
+            columns="Fecha",
             values="Turno"
         )
 
-        matriz = matriz.reindex(
-            columns=df_v["Fecha_Col"].unique()
-        )
-
-        st.markdown(
-            "🟦 T1 | 🟩 T2 | ⬛ T3 | 🟥 DESC | 🟧 COMP"
-        )
-
         st.dataframe(
-
-            matriz.style.map(color_turno),
-
-            use_container_width=True,
-
-            height=350
-        )
-
-        # =============================================
-        # EDITOR
-        # =============================================
-
-        st.subheader("✍️ Editor Manual")
-
-        config_col = {
-
-            c: st.column_config.SelectboxColumn(
-                options=TURNOS
-            )
-
-            for c in matriz.columns
-        }
-
-        matriz_editada = st.data_editor(
-
             matriz,
-
-            column_config=config_col,
-
             use_container_width=True
         )
 
-        # =============================================
-        # GUARDAR
-        # =============================================
-
-        if st.button("💾 Guardar Cambios"):
-
-            df_man = (
-
-                matriz_editada
-
-                .reset_index()
-
-                .melt(
-
-                    id_vars="Grupo",
-
-                    var_name="Fecha_Col",
-
-                    value_name="Turno"
-                )
-            )
-
-            df_final = (
-
-                df_v.drop(columns=["Turno"])
-
-                .merge(
-                    df_man,
-                    on=["Grupo", "Fecha_Col"]
-                )
-            )
-
-            guardar_malla_en_historico(
-                df_final
-            )
-
-            st.session_state.malla_generada = (
-                df_final
-            )
-
-            st.success(
-                "✅ Cambios guardados"
-            )
-
-            st.rerun()
-
-        # =============================================
-        # AUDITORÍA
-        # =============================================
-
-        auditar_malla(df_v)
-
-        # =============================================
-        # DETALLADO PERSONAS
-        # =============================================
-
-        st.divider()
-
         st.subheader(
-            "👥 Malla Detallada Personas"
+            "👥 Personal asignado a TR"
         )
 
-        malla_personas = []
+        tr_df = df[
+            df["Turno"] == "TR"
+        ][[
+            "Fecha",
+            "Grupo",
+            "Persona TR"
+        ]]
 
-        for _, row in df_v.iterrows():
+        st.dataframe(
+            tr_df,
+            use_container_width=True
+        )
 
-            grupo = row["Grupo"]
 
-            personas = PERSONAL.get(
-                grupo,
-                []
-            )
 
-            for persona in personas:
 
-                malla_personas.append({
 
-                    "Fecha": row[
-                        "Fecha_Raw"
-                    ].strftime("%Y-%m-%d"),
+def pantalla_programador():
+    modulo = st.radio(
+        "Selecciona módulo",
+        ["👷 Técnicos", "🚍 Personal Abordaje"],
+        horizontal=True
+    )
 
-                    "Nombre": persona["Nombre"],
-
-                    "Cedula": persona["Cedula"],
-
-                    "Grupo": grupo,
-
-                    "Turno": row["Turno"],
-
-                    "Hora Inicio": row.get(
-                        "Hora_Inicio",
-                        ""
-                    ),
-
-                    "Hora Fin": row.get(
-                        "Hora_Fin",
-                        ""
-                    )
-
-                })
-
-        if malla_personas:
-
-            df_personas = pd.DataFrame(
-                malla_personas
-            )
-
-            st.dataframe(
-
-                df_personas,
-
-                use_container_width=True,
-
-                height=450
-            )
-
-            excel_buffer = io.BytesIO()
-
-            with pd.ExcelWriter(
-                excel_buffer,
-                engine="openpyxl"
-            ) as writer:
-
-                df_personas.to_excel(
-
-                    writer,
-
-                    index=False,
-
-                    sheet_name="Detalle_Personal"
-                )
-
-            st.download_button(
-
-                label="📥 Descargar Detallado",
-
-                data=excel_buffer.getvalue(),
-
-                file_name="detalle_personal.xlsx",
-
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+    if modulo == "👷 Técnicos":
+        pantalla_tecnicos()
+    else:
+        pantalla_abordaje()
