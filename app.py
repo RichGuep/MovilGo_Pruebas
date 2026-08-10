@@ -4,9 +4,9 @@ import json
 import os
 from datetime import datetime, date
 
-# --- IMPORTACIÓN DEL MOTOR DE LÓGICA ---
+# --- IMPORTACIÓN DEL MOTOR DE LÓGICA Y BASE DE DATOS ---
 try:
-    from logic_programador import pantalla_programador, pantalla_personal, cargar_excel
+    from logic_programador import pantalla_programador, pantalla_personal, cargar_empleados_bd
 except ImportError:
     st.error("⚠️ No se encontró 'logic_programador.py'. Asegúrate de que ambos archivos estén en la misma carpeta.")
 
@@ -19,7 +19,6 @@ st.set_page_config(
 
 URL_BASE = "https://raw.githubusercontent.com/RichGuep/movilgo/main/"
 LOGO_MÓVILGO = f"{URL_BASE}MovilGo.png"
-
 CONFIG_FILE = "config_estructural.json"
 
 def cargar_configuracion():
@@ -90,12 +89,14 @@ def modulo_inicio():
         </div>
     ''', unsafe_allow_html=True)
     
-    df_p = cargar_excel("empleados_grupos.xlsx")
+    # NUEVO: Llama a la base de datos en lugar de GitHub
+    df_p = cargar_empleados_bd() 
+    
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("👷 Personal Registrado", len(df_p) if not df_p.empty else "0")
     c2.metric("📂 Modelos Activos", len(st.session_state.config_personal))
     c3.metric("⚖️ Deuda Global", "0 días")
-    c4.metric("📡 Estado de Red", "24/7 Activo", delta="Estable")
+    c4.metric("📡 Estado de BD", "Conectado", delta="Estable")
 
     st.divider()
     st.subheader("🇨🇴 Contexto Legal Global: Reforma Laboral 2026")
