@@ -4,12 +4,19 @@ import json
 import os
 from datetime import datetime, date
 
-# --- IMPORTACIÓN DEL MOTOR DE LÓGICA ---
-from logic_programador import pantalla_programador, pantalla_personal, cargar_excel
+# --- IMPORTACIÓN DE MOTORES LÓGICOS ---
+# Aquí importaremos los motores de cada empresa
+try:
+    from logic_programador import pantalla_programador, pantalla_personal, cargar_excel
+except ImportError:
+    st.error("⚠️ No se encontró 'logic_programador.py' (Motor de Cablemovil).")
+
+# NOTA: Cuando crees la lógica de Greenmovil, la importarás aquí:
+# from logic_greenmovil import pantalla_programador_green, pantalla_personal_green
 
 # --- 1. CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
-    page_title="MovilGo - Gestión Operativa", 
+    page_title="MovilGo - Hub Corporativo", 
     page_icon="🏢",
     layout="wide", 
     initial_sidebar_state="expanded"
@@ -30,12 +37,6 @@ def cargar_configuracion():
                 "extension_turno": 7,
                 "grupos": ["Grupo 1", "Grupo 2", "Grupo 3", "Grupo 4"],
                 "rotacion": "Determinista por Grupos"
-            },
-            "Abordaje": {
-                "descripcion": "Gestión comercial y de abordaje operativo.",
-                "extension_turno": 7,
-                "grupos": ["Abordaje"],
-                "rotacion": "Alternancia Semanal"
             }
         }
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
@@ -49,29 +50,14 @@ if 'config_personal' not in st.session_state:
 PRIMARY_COLOR = "#1E3D59" 
 st.markdown(f"""
     <style>
-    /* Fondo general más limpio */
     .stApp {{ background-color: #F4F7F6; }}
     
-    /* Estilos del Sidebar */
     [data-testid="stSidebar"] {{ 
         background-color: {PRIMARY_COLOR}; 
         border-right: 1px solid #ffffff22; 
     }}
     [data-testid="stSidebar"] * {{ color: white !important; font-weight: 500; }}
     
-    [data-testid="stSidebar"] [data-testid="stFileUploader"] {{
-        background-color: #ffffff !important;
-        padding: 12px;
-        border-radius: 12px;
-        border: 2px dashed #3a6073 !important;
-        margin-bottom: 15px;
-    }}
-    [data-testid="stSidebar"] [data-testid="stFileUploader"] * {{
-        color: #1E3D59 !important; 
-        font-weight: bold !important;
-    }}
-    
-    /* Inputs de texto modernos (Login y app) */
     .stTextInput>div>div>input {{
         border-radius: 10px;
         border: 1.5px solid #d1d5db;
@@ -84,7 +70,6 @@ st.markdown(f"""
         box-shadow: 0 0 0 2px rgba(30, 61, 89, 0.2);
     }}
     
-    /* Botones primarios con efecto 3D */
     .stButton>button {{ 
         width: 100%; 
         border-radius: 12px; 
@@ -102,7 +87,19 @@ st.markdown(f"""
         color: #f8f9fa;
     }}
     
-    /* Tarjeta principal del Inicio */
+    /* Botones de Selección de Empresa */
+    .btn-empresa>button {{
+        height: 8em !important;
+        font-size: 1.5rem !important;
+        background: white !important;
+        color: {PRIMARY_COLOR} !important;
+        border: 2px solid {PRIMARY_COLOR} !important;
+    }}
+    .btn-empresa>button:hover {{
+        background: {PRIMARY_COLOR} !important;
+        color: white !important;
+    }}
+
     .welcome-card {{
         background: linear-gradient(135deg, {PRIMARY_COLOR} 0%, #3a6073 100%);
         color: white; 
@@ -113,7 +110,6 @@ st.markdown(f"""
         text-align: center;
     }}
     
-    /* Tipografía del Login */
     .login-title {{
         text-align: center;
         color: {PRIMARY_COLOR};
@@ -122,87 +118,71 @@ st.markdown(f"""
         margin-bottom: 5px;
         font-size: 2.2rem;
     }}
-    .login-subtitle {{
-        text-align: center;
-        color: #666;
-        font-size: 1.1rem;
-        margin-bottom: 25px;
-    }}
     </style>
     """, unsafe_allow_html=True)
 
 def modulo_inicio():
     st.markdown(f'''
         <div class="welcome-card">
-            <h1 style="font-size: 2.5rem; font-weight: 800;">👋 ¡Bienvenido al Panel de Control {st.session_state.empresa}!</h1>
+            <h1 style="font-size: 2.5rem; font-weight: 800;">👋 ¡Bienvenido al Panel de {st.session_state.empresa_seleccionada}!</h1>
             <p style="font-size: 1.3rem; opacity: 0.9; margin-top: 10px;">
-                Garantizando cobertura técnica y operativa por Grupos bajo el cumplimiento de la Reforma Laboral Colombiana 2026.
+                Inteligencia Operativa y Sistematización de Turnos.
             </p>
         </div>
     ''', unsafe_allow_html=True)
     
-    df_p = cargar_excel("empleados_grupos.xlsx") 
-    
+    # Solo mostramos esto para Cablemovil por ahora, ya que requiere cargar_excel
+    if st.session_state.empresa_seleccionada == "Cablemovil SAS":
+        try:
+            df_p = cargar_excel("empleados_grupos.xlsx") 
+            total_emp = len(df_p) if not df_p.empty else "0"
+        except:
+            total_emp = "0"
+    else:
+        total_emp = "Pendiente Configurar BD"
+
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("👷 Personal Registrado", len(df_p) if not df_p.empty else "0")
+    c1.metric("👷 Personal Registrado", total_emp)
     c2.metric("📂 Modelos Activos", len(st.session_state.config_personal))
     c3.metric("⚖️ Deuda Global", "0 días")
     c4.metric("📡 Estado de BD", "Conectado", delta="Estable")
 
     st.divider()
     st.subheader("🇨🇴 Contexto Legal Global: Reforma Laboral 2026")
-    inf1, inf2 = st.columns(2)
-    with inf1:
-        st.info("📉 **Reducción de la Jornada Semanal:** Para el año 2026 la jornada ordinaria máxima es de 42 horas semanales. El sistema controla los acumulados semanales por empleado.")
-    with inf2:
-        st.warning("🛌 **Descansos Compensatorios:** El sistema genera deudas automáticas individuales de compensación cuando las necesidades del servicio obligan a laborar en días de descanso base.")
+    st.info("📉 **Reducción de la Jornada Semanal:** Para el año 2026 la jornada ordinaria máxima es de 42 horas semanales.")
 
+
+# --- VARIABLES DE SESIÓN ---
 if 'splash_done' not in st.session_state: st.session_state.splash_done = False
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False
-if 'empresa' not in st.session_state: st.session_state.empresa = "Grupo Movil"
+if 'empresa_seleccionada' not in st.session_state: st.session_state.empresa_seleccionada = None
 
-# --- PANTALLA SPLASH (BIENVENIDA) ---
+# --- PANTALLA 1: SPLASH (BIENVENIDA) ---
 if not st.session_state.splash_done:
-    # Sistema de columnas para centrar perfectamente
     _, splash_center, _ = st.columns([1, 2, 1])
-    
     with splash_center:
         st.markdown('<div style="text-align:center; margin-top:10vh;">', unsafe_allow_html=True)
-        # Logo grande y centrado
         _, img_splash, _ = st.columns([1, 1.5, 1])
-        with img_splash:
-            st.image(LOGO_MÓVILGO, use_container_width=True)
-            
+        with img_splash: st.image(LOGO_MÓVILGO, use_container_width=True)
         st.markdown("<h1 style='color:#1E3D59; font-size: 3.5rem; font-weight: 900; margin-top: 20px;'>Optimizer Pro 2026</h1>", unsafe_allow_html=True)
-        st.markdown("<p style='font-size: 1.3rem; color: #666; margin-bottom: 40px;'>Inteligencia Operativa y Sistematización de Turnos</p>", unsafe_allow_html=True)
+        st.markdown("<p style='font-size: 1.3rem; color: #666; margin-bottom: 40px;'>Hub Operativo Corporativo</p>", unsafe_allow_html=True)
         
         if st.button("INGRESAR AL PORTAL", use_container_width=True):
             st.session_state.splash_done = True
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
-# --- PANTALLA DE LOGIN ---
+# --- PANTALLA 2: LOGIN ---
 elif not st.session_state.logged_in:
-    # Sistema de columnas para encajonar el login en el centro de la pantalla
     _, login_center, _ = st.columns([1.5, 2, 1.5])
-    
     with login_center:
-        st.write("") 
-        st.write("")
-        st.write("")
-        st.write("")
-        
-        # Tarjeta visual del login
+        st.write(""); st.write(""); st.write(""); st.write("")
         with st.container():
-            # Logo centrado dentro de la tarjeta
             _, img_login, _ = st.columns([1, 1.2, 1])
-            with img_login:
-                st.image(LOGO_MÓVILGO, use_container_width=True)
-            
+            with img_login: st.image(LOGO_MÓVILGO, use_container_width=True)
             st.markdown("<h2 class='login-title'>Acceso Seguro</h2>", unsafe_allow_html=True)
-            st.markdown("<p class='login-subtitle'>Ingresa tus credenciales administrativas</p>", unsafe_allow_html=True)
+            st.markdown("<p style='text-align:center; color:#666; margin-bottom: 25px;'>Ingresa tus credenciales administrativas</p>", unsafe_allow_html=True)
             
-            # Campos de texto con iconos
             u = st.text_input("👤 Nombre de Usuario", placeholder="Ej: admin")
             p = st.text_input("🔒 Contraseña", type="password", placeholder="••••••••")
             
@@ -214,19 +194,60 @@ elif not st.session_state.logged_in:
                 else:
                     st.error("❌ Credenciales incorrectas. Por favor, intenta de nuevo.")
 
-# --- INTERIOR DE LA APLICACIÓN ---
+# --- PANTALLA 3: SELECCIÓN DE EMPRESA ---
+elif st.session_state.empresa_seleccionada is None:
+    st.markdown("<h2 class='login-title' style='margin-top: 5vh; font-size: 3rem;'>🏢 Seleccione el Entorno Operativo</h2>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align:center; color:#666; margin-bottom: 50px; font-size: 1.2rem;'>¿Qué operación desea gestionar hoy?</p>", unsafe_allow_html=True)
+    
+    _, col1, col2, _ = st.columns([1, 2, 2, 1])
+    
+    with col1:
+        st.markdown('<div class="btn-empresa">', unsafe_allow_html=True)
+        if st.button("🟠 Cablemovil SAS", use_container_width=True):
+            st.session_state.empresa_seleccionada = "Cablemovil SAS"
+            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+    with col2:
+        st.markdown('<div class="btn-empresa">', unsafe_allow_html=True)
+        if st.button("🟢 Greenmovil SAS", use_container_width=True):
+            st.session_state.empresa_seleccionada = "Greenmovil SAS"
+            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+
+# --- PANTALLA 4: INTERIOR DE LA APLICACIÓN (SEGÚN EMPRESA) ---
 else:
     with st.sidebar:
         st.write("")
         st.image(LOGO_MÓVILGO, use_container_width=True)
+        st.markdown(f"<h4 style='text-align:center; color:white;'>{st.session_state.empresa_seleccionada}</h4>", unsafe_allow_html=True)
         st.divider()
         menu = st.radio("Navegación del Sistema", ["🏠 Inicio", "👥 Personal", "📅 Programación"])
         st.divider()
+        
+        # Nuevo botón para cambiar de empresa sin cerrar sesión
+        if st.button("🔄 Cambiar de Empresa"):
+            st.session_state.empresa_seleccionada = None
+            st.rerun()
+            
         if st.button("🚪 Cerrar Sesión"):
             st.session_state.logged_in = False
             st.session_state.splash_done = False
+            st.session_state.empresa_seleccionada = None
             st.rerun()
 
-    if menu == "🏠 Inicio": modulo_inicio()
-    elif menu == "👥 Personal": pantalla_personal()
-    elif menu == "📅 Programación": pantalla_programador()
+    # --- RUTEO DE LÓGICA SEGÚN EMPRESA ---
+    if menu == "🏠 Inicio": 
+        modulo_inicio()
+        
+    elif menu == "👥 Personal": 
+        if st.session_state.empresa_seleccionada == "Cablemovil SAS":
+            pantalla_personal()
+        elif st.session_state.empresa_seleccionada == "Greenmovil SAS":
+            st.info("🛠️ El módulo de personal para Greenmovil SAS está en construcción. Aquí conectaremos 'logic_greenmovil.py' próximamente.")
+            
+    elif menu == "📅 Programación": 
+        if st.session_state.empresa_seleccionada == "Cablemovil SAS":
+            pantalla_programador()
+        elif st.session_state.empresa_seleccionada == "Greenmovil SAS":
+            st.warning("🛠️ El módulo de programación para Greenmovil SAS está en desarrollo.")
