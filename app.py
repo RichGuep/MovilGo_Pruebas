@@ -4,15 +4,13 @@ import json
 import os
 from datetime import datetime, date
 
-# --- IMPORTACIÓN DEL MOTOR DE LÓGICA Y BASE DE DATOS ---
-try:
-    from logic_programador import pantalla_programador, pantalla_personal, cargar_empleados_bd
-except ImportError:
-    st.error("⚠️ No se encontró 'logic_programador.py'. Asegúrate de que ambos archivos estén en la misma carpeta.")
+# --- IMPORTACIÓN DEL MOTOR DE LÓGICA ---
+from logic_programador import pantalla_programador, pantalla_personal, cargar_excel
 
 # --- 1. CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
-    page_title="MovilGo - Gestión Operativa 24/7", 
+    page_title="MovilGo - Gestión Operativa", 
+    page_icon="🏢",
     layout="wide", 
     initial_sidebar_state="expanded"
 )
@@ -47,12 +45,18 @@ def cargar_configuracion():
 if 'config_personal' not in st.session_state:
     st.session_state.config_personal = cargar_configuracion()
 
-# --- 2. ESTILOS CSS PERSONALIZADOS ---
+# --- 2. ESTILOS CSS AVANZADOS ---
 PRIMARY_COLOR = "#1E3D59" 
 st.markdown(f"""
     <style>
-    .main {{ background-color: #f8f9fa; }}
-    [data-testid="stSidebar"] {{ background-color: {PRIMARY_COLOR}; border-right: 1px solid #ffffff22; }}
+    /* Fondo general más limpio */
+    .stApp {{ background-color: #F4F7F6; }}
+    
+    /* Estilos del Sidebar */
+    [data-testid="stSidebar"] {{ 
+        background-color: {PRIMARY_COLOR}; 
+        border-right: 1px solid #ffffff22; 
+    }}
     [data-testid="stSidebar"] * {{ color: white !important; font-weight: 500; }}
     
     [data-testid="stSidebar"] [data-testid="stFileUploader"] {{
@@ -66,15 +70,63 @@ st.markdown(f"""
         color: #1E3D59 !important; 
         font-weight: bold !important;
     }}
+    
+    /* Inputs de texto modernos (Login y app) */
+    .stTextInput>div>div>input {{
+        border-radius: 10px;
+        border: 1.5px solid #d1d5db;
+        padding: 12px 15px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        font-size: 1rem;
+    }}
+    .stTextInput>div>div>input:focus {{
+        border-color: {PRIMARY_COLOR};
+        box-shadow: 0 0 0 2px rgba(30, 61, 89, 0.2);
+    }}
+    
+    /* Botones primarios con efecto 3D */
     .stButton>button {{ 
-        width: 100%; border-radius: 12px; font-weight: bold; 
-        height: 3em; transition: 0.3s; border: none; 
+        width: 100%; 
+        border-radius: 12px; 
+        font-weight: 700; 
+        height: 3.2em; 
+        transition: all 0.3s ease; 
+        border: none; 
+        background: linear-gradient(135deg, {PRIMARY_COLOR} 0%, #3a6073 100%);
+        color: white;
         box-shadow: 0 4px 6px rgba(0,0,0,0.1); 
     }}
+    .stButton>button:hover {{
+        transform: translateY(-3px);
+        box-shadow: 0 8px 15px rgba(0,0,0,0.2);
+        color: #f8f9fa;
+    }}
+    
+    /* Tarjeta principal del Inicio */
     .welcome-card {{
         background: linear-gradient(135deg, {PRIMARY_COLOR} 0%, #3a6073 100%);
-        color: white; padding: 2.5rem; border-radius: 20px; 
-        box-shadow: 0 10px 25px rgba(0,0,0,0.1); margin-bottom: 2rem;
+        color: white; 
+        padding: 3rem; 
+        border-radius: 20px; 
+        box-shadow: 0 15px 35px rgba(0,0,0,0.15); 
+        margin-bottom: 2.5rem;
+        text-align: center;
+    }}
+    
+    /* Tipografía del Login */
+    .login-title {{
+        text-align: center;
+        color: {PRIMARY_COLOR};
+        font-weight: 800;
+        margin-top: 15px;
+        margin-bottom: 5px;
+        font-size: 2.2rem;
+    }}
+    .login-subtitle {{
+        text-align: center;
+        color: #666;
+        font-size: 1.1rem;
+        margin-bottom: 25px;
     }}
     </style>
     """, unsafe_allow_html=True)
@@ -82,15 +134,14 @@ st.markdown(f"""
 def modulo_inicio():
     st.markdown(f'''
         <div class="welcome-card">
-            <h1>👋 ¡Bienvenido al Panel de Control {st.session_state.empresa}!</h1>
-            <p style="font-size: 1.2rem; opacity: 0.9;">
+            <h1 style="font-size: 2.5rem; font-weight: 800;">👋 ¡Bienvenido al Panel de Control {st.session_state.empresa}!</h1>
+            <p style="font-size: 1.3rem; opacity: 0.9; margin-top: 10px;">
                 Garantizando cobertura técnica y operativa por Grupos bajo el cumplimiento de la Reforma Laboral Colombiana 2026.
             </p>
         </div>
     ''', unsafe_allow_html=True)
     
-    # NUEVO: Llama a la base de datos en lugar de GitHub
-    df_p = cargar_empleados_bd() 
+    df_p = cargar_excel("empleados_grupos.xlsx") 
     
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("👷 Personal Registrado", len(df_p) if not df_p.empty else "0")
@@ -110,34 +161,67 @@ if 'splash_done' not in st.session_state: st.session_state.splash_done = False
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 if 'empresa' not in st.session_state: st.session_state.empresa = "Grupo Movil"
 
+# --- PANTALLA SPLASH (BIENVENIDA) ---
 if not st.session_state.splash_done:
-    st.markdown('<div style="text-align:center; margin-top:15vh;">', unsafe_allow_html=True)
-    st.image(LOGO_MÓVILGO, width=550)
-    st.markdown("<h1 style='color:#1E3D59;'>Optimizer Pro 2026</h1>", unsafe_allow_html=True)
-    if st.button("INGRESAR AL PORTAL"):
-        st.session_state.splash_done = True
-        st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
-
-elif not st.session_state.logged_in:
-    st.markdown('<div style="max-width:450px; margin:10vh auto; background:white; padding:3rem; border-radius:25px; box-shadow: 0 15px 35px rgba(0,0,0,0.15);">', unsafe_allow_html=True)
-    st.image(LOGO_MÓVILGO, width=180)
-    st.markdown("### **Acceso Administrativo**")
-    u = st.text_input("Usuario", placeholder="admin")
-    p = st.text_input("Contraseña", type="password", placeholder="••••••••")
-    if st.button("INICIAR SESIÓN"):
-        if u == "admin" and p == "movilgo2026":
-            st.session_state.logged_in = True
+    # Sistema de columnas para centrar perfectamente
+    _, splash_center, _ = st.columns([1, 2, 1])
+    
+    with splash_center:
+        st.markdown('<div style="text-align:center; margin-top:10vh;">', unsafe_allow_html=True)
+        # Logo grande y centrado
+        _, img_splash, _ = st.columns([1, 1.5, 1])
+        with img_splash:
+            st.image(LOGO_MÓVILGO, use_container_width=True)
+            
+        st.markdown("<h1 style='color:#1E3D59; font-size: 3.5rem; font-weight: 900; margin-top: 20px;'>Optimizer Pro 2026</h1>", unsafe_allow_html=True)
+        st.markdown("<p style='font-size: 1.3rem; color: #666; margin-bottom: 40px;'>Inteligencia Operativa y Sistematización de Turnos</p>", unsafe_allow_html=True)
+        
+        if st.button("INGRESAR AL PORTAL", use_container_width=True):
+            st.session_state.splash_done = True
             st.rerun()
-        else:
-            st.error("Credenciales incorrectas")
-    st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
+# --- PANTALLA DE LOGIN ---
+elif not st.session_state.logged_in:
+    # Sistema de columnas para encajonar el login en el centro de la pantalla
+    _, login_center, _ = st.columns([1.5, 2, 1.5])
+    
+    with login_center:
+        st.write("") 
+        st.write("")
+        st.write("")
+        st.write("")
+        
+        # Tarjeta visual del login
+        with st.container():
+            # Logo centrado dentro de la tarjeta
+            _, img_login, _ = st.columns([1, 1.2, 1])
+            with img_login:
+                st.image(LOGO_MÓVILGO, use_container_width=True)
+            
+            st.markdown("<h2 class='login-title'>Acceso Seguro</h2>", unsafe_allow_html=True)
+            st.markdown("<p class='login-subtitle'>Ingresa tus credenciales administrativas</p>", unsafe_allow_html=True)
+            
+            # Campos de texto con iconos
+            u = st.text_input("👤 Nombre de Usuario", placeholder="Ej: admin")
+            p = st.text_input("🔒 Contraseña", type="password", placeholder="••••••••")
+            
+            st.write("")
+            if st.button("🚀 INICIAR SESIÓN", use_container_width=True):
+                if u == "admin" and p == "movilgo2026":
+                    st.session_state.logged_in = True
+                    st.rerun()
+                else:
+                    st.error("❌ Credenciales incorrectas. Por favor, intenta de nuevo.")
+
+# --- INTERIOR DE LA APLICACIÓN ---
 else:
     with st.sidebar:
+        st.write("")
         st.image(LOGO_MÓVILGO, use_container_width=True)
         st.divider()
-        menu = st.radio("NAVEGACIÓN", ["🏠 Inicio", "👥 Personal", "📅 Programación"])
+        menu = st.radio("Navegación del Sistema", ["🏠 Inicio", "👥 Personal", "📅 Programación"])
+        st.divider()
         if st.button("🚪 Cerrar Sesión"):
             st.session_state.logged_in = False
             st.session_state.splash_done = False
