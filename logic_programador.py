@@ -154,13 +154,16 @@ def generar_malla_tecnicos_avanzado(inicio, fin, descansos_iniciales, conceder_c
     df_emp = cargar_excel("empleados_grupos.xlsx")
     if df_emp.empty: return pd.DataFrame()
     
-    filas, deudas = [], {g: 0 for g in GRUPOS_TEC}
+    filas = []
+    deudas = {g: 0 for g in GRUPOS_TEC}
     
-    # 🌟 EL TRUCO MAGISTRAL: Crear el pool dinámico a partir de lo que seleccionaste en la UI
-    pool_descansos_dinamico = [descansos_iniciales[g] for g in GRUPOS_TEC]
+    # Memoria de Estados: 0=T1, 1=T2, 2=T3, 3=T4/DISP
+    turnos_historia = {g: i for i, g in enumerate(GRUPOS_TEC)} 
+    ayer_descanso = {g: False for g in GRUPOS_TEC}
     
     for fecha in pd.date_range(inicio, fin):
-        dia_n, sem, asig = DIAS_ES[fecha.weekday()], fecha.isocalendar()[1], {}
+        dia_n = DIAS_ES[fecha.weekday()]
+        sem = fecha.isocalendar()[1]
         delta_meses = (fecha.year - inicio.year) * 12 + (fecha.month - inicio.month)
         fecha_str = fecha.strftime('%Y-%m-%d')
         es_fin_semana = (fecha.weekday() in [5, 6])
@@ -170,13 +173,18 @@ def generar_malla_tecnicos_avanzado(inicio, fin, descansos_iniciales, conceder_c
         else: desplazamiento = 0
             
         descansos_vivos = {}
-        for idx_g, g in enumerate(GRUPOS_TEC):
-            idx_rotado = (idx_g + desplazamiento) % len(pool_descansos_dinamico)
-            descansos_vivos[g] = pool_descansos_dinamico[idx_rotado]
+        for g in GRUPOS_TEC:
+            d_name = descansos_iniciales[g]
+            idx_inicial = DIAS_ES.index(d_name)
+            idx_rotado = (idx_inicial + desplazamiento) % len(DIAS_ES)
+            descansos_vivos[g] = DIAS_ES[idx_rotado]
 
+        asig = {}
         gps_h = [g for g, d in descansos_vivos.items() if d == dia_n]
         if len(gps_h) > 1:
-            idx = sem % len(gps_h); d_r = gps_h[idx]; asig[d_r] = "DESCANSO"
+            idx = sem % len(gps_h)
+            d_r = gps_h[idx]
+            asig[d_r] = "DESCANSO"
             for g in gps_h: 
                 if g != d_r and conceder_compensatorio: deudas[g] += 1
         elif len(gps_h) == 1: 
@@ -188,31 +196,57 @@ def generar_malla_tecnicos_avanzado(inicio, fin, descansos_iniciales, conceder_c
                 asig[g_d[0]] = "COMPENSADO"
                 deudas[g_d[0]] -= 1
 
-        hay_descanso_hoy = any(asig.get(g) in ["DESCANSO", "COMPENSADO"] for g in GRUPOS_TEC)
-
-        if hay_descanso_hoy:
-            activos = [g for g in GRUPOS_TEC if g not in asig]
-            turnos_3 = ["T1", "T2", "T3"]
-            for idx_act, g in enumerate(activos):
-                idx_turno = (sem + idx_act) % 3
-                asig[g] = turnos_3[idx_turno]
-        else:
-            if activar_t4 and not es_fin_semana:
-                secuencia_turnos = ["T1", "T2", "T3", "T4"]
-            else:
-                secuencia_turnos = ["T1", "T2", "T3", "DISPONIBLE"]
+        activos = [g for g in GRUPOS_TEC if g not in asig]
+        
+        # 🌟 REGLA DE SALUD 1: Solo avanzar de turno si vienen de descansar
+        for g in activos:
+            if ayer_descanso[g]:
+                turnos_historia[g] = (turnos_historia[g] + 1) % 4
                 
-            for idx_g, g in enumerate(GRUPOS_TEC):
-                if g not in asig:
-                    idx_turno = (sem + idx_g) % len(secuencia_turnos)
-                    asig[g] = secuencia_turnos[idx_turno]
-
+        asignacion_hoy = {}
+        usados = set()
+        
+        # 🌟 REGLA DE BLOQUES: Mantener el turno de ayer si es esencial (T1, T2, T3)
+        for g in activos:
+            deseado = turnos_historia[g]
+            if deseado < 3 and deseado not in usados:
+                asignacion_hoy[g] = deseado
+                usados.add(deseado)
+                
+        # 🌟 REGLA DE COBERTURA: Llenar huecos con el grupo comodín (Relevo)
+        faltantes = [t for t in [0, 1, 2] if t not in usados]
+        libres = [g for g in activos if g not in asignacion_hoy]
+        
+        for g in libres:
+            if faltantes:
+                asignado = faltantes.pop(0)
+                asignacion_hoy[g] = asignado
+                turnos_historia[g] = asignado # Forzamos la historia para que no salte mañana
+            else:
+                asignacion_hoy[g] = 3
+                turnos_historia[g] = 3
+                
+        # Traductor de Estados a Turnos Reales
+        turnos_map = {
+            0: "T1", 
+            1: "T2", 
+            2: "T3", 
+            3: "T4" if (activar_t4 and not es_fin_semana) else "DISPONIBLE"
+        }
+        
         for g in GRUPOS_TEC:
-            turno_final = asig.get(g, "DESCANSO")
+            if g in asig:
+                turno_final = asig[g]
+                ayer_descanso[g] = True
+            else:
+                turno_final = turnos_map[asignacion_hoy[g]]
+                ayer_descanso[g] = False
+                
             if "ajustes_manuales" in st.session_state and (g, fecha_str) in st.session_state.ajustes_manuales:
                 turno_final = st.session_state.ajustes_manuales[(g, fecha_str)]
-            filas.append({"Fecha": fecha, "Sujeto": g, "Turno": turno_final})
                 
+            filas.append({"Fecha": fecha, "Sujeto": g, "Turno": turno_final})
+            
     return pd.DataFrame(filas)
 
 # =========================================================
