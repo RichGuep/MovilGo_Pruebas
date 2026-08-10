@@ -5,16 +5,13 @@ import os
 from datetime import datetime, date
 
 # --- IMPORTACIÓN DE MOTORES LÓGICOS ---
-
-from logic_programador import pantalla_programador, pantalla_personal, cargar_excel, pantalla_abordaje
-
 try:
-    from logic_programador import pantalla_programador, pantalla_personal, cargar_excel
+    from logic_programador import pantalla_programador, pantalla_personal, cargar_excel, pantalla_abordaje
 except ImportError:
     st.error("⚠️ No se encontró 'logic_programador.py' (Motor de Cablemovil).")
 
 # NOTA: Próximamente importaremos aquí el motor de abordaje:
-# from logic_abordaje import pantalla_abordaje
+# from logic_greenmovil import pantalla_abordaje_green
 
 # --- 1. CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
@@ -282,13 +279,6 @@ else:
             
     elif menu == "🚀 Prog. Abordaje":
         if st.session_state.empresa_seleccionada == "Cablemovil SAS":
-
-            elif menu == "🚀 Prog. Abordaje":
-        if st.session_state.empresa_seleccionada == "Cablemovil SAS":
-            pantalla_abordaje():
-            
-        elif st.session_state.empresa_seleccionada == "Greenmovil SAS":
-            st.warning("🛠️ El módulo de abordaje para Greenmovil SAS está en desarrollo.")
-            st.info("🎯 **Espacio listo para el Motor de Abordaje.** Aquí conectaremos las nuevas reglas, parámetros y horarios que definas para este personal.")
+            pantalla_abordaje()
         elif st.session_state.empresa_seleccionada == "Greenmovil SAS":
             st.warning("🛠️ El módulo de abordaje para Greenmovil SAS está en desarrollo.")
