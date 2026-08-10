@@ -1,209 +1,147 @@
 import streamlit as st
 import pandas as pd
-import io
-import random
-from datetime import datetime, timedelta
-from github import Github
+import json
+import os
+from datetime import datetime, date
 
 # --- IMPORTACIÓN DEL MOTOR DE LÓGICA ---
 try:
-   from logic_programador import pantalla_programador
+    from logic_programador import pantalla_programador, pantalla_personal, cargar_excel
 except ImportError:
     st.error("⚠️ No se encontró 'logic_programador.py'. Asegúrate de que ambos archivos estén en la misma carpeta.")
 
-# --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="MovilGo - Gestión Operativa 24/7", layout="wide", initial_sidebar_state="expanded")
+# --- 1. CONFIGURACIÓN DE PÁGINA ---
+st.set_page_config(
+    page_title="MovilGo - Gestión Operativa 24/7", 
+    layout="wide", 
+    initial_sidebar_state="expanded"
+)
 
-# --- URLs DE IMÁGENES GITHUB ---
 URL_BASE = "https://raw.githubusercontent.com/RichGuep/movilgo/main/"
-LOGO_APP = f"{URL_BASE}MovilGo.png"
-LOGO_CABLE = f"{URL_BASE}logo_empresa_2.png" 
+LOGO_MÓVILGO = f"{URL_BASE}MovilGo.png"
 
-# --- ESTILOS CSS AVANZADOS ---
+CONFIG_FILE = "config_estructural.json"
+
+def cargar_configuracion():
+    if os.path.exists(CONFIG_FILE):
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    else:
+        default_config = {
+            "Técnicos": {
+                "descripcion": "Operación de soporte técnico en campo 24/7 por bloques organizados.",
+                "extension_turno": 7,
+                "grupos": ["Grupo 1", "Grupo 2", "Grupo 3", "Grupo 4"],
+                "rotacion": "Determinista por Grupos"
+            },
+            "Abordaje": {
+                "descripcion": "Gestión comercial y de abordaje operativo.",
+                "extension_turno": 7,
+                "grupos": ["Abordaje"],
+                "rotacion": "Alternancia Semanal"
+            }
+        }
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(default_config, f, indent=4, ensure_ascii=False)
+        return default_config
+
+if 'config_personal' not in st.session_state:
+    st.session_state.config_personal = cargar_configuracion()
+
+# --- 2. ESTILOS CSS PERSONALIZADOS ---
 PRIMARY_COLOR = "#1E3D59" 
 st.markdown(f"""
     <style>
     .main {{ background-color: #f8f9fa; }}
     [data-testid="stSidebar"] {{ background-color: {PRIMARY_COLOR}; border-right: 1px solid #ffffff22; }}
     [data-testid="stSidebar"] * {{ color: white !important; font-weight: 500; }}
-    .stButton>button {{ width: 100%; border-radius: 12px; font-weight: bold; height: 3em; transition: 0.3s; border: none; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }}
+    
+    [data-testid="stSidebar"] [data-testid="stFileUploader"] {{
+        background-color: #ffffff !important;
+        padding: 12px;
+        border-radius: 12px;
+        border: 2px dashed #3a6073 !important;
+        margin-bottom: 15px;
+    }}
+    [data-testid="stSidebar"] [data-testid="stFileUploader"] * {{
+        color: #1E3D59 !important; 
+        font-weight: bold !important;
+    }}
+    .stButton>button {{ 
+        width: 100%; border-radius: 12px; font-weight: bold; 
+        height: 3em; transition: 0.3s; border: none; 
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1); 
+    }}
     .welcome-card {{
         background: linear-gradient(135deg, {PRIMARY_COLOR} 0%, #3a6073 100%);
-        color: white; padding: 2.5rem; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1);
-        margin-bottom: 2rem;
-    }}
-    .stMetric {{ background-color: white; padding: 20px; border-radius: 15px; border: 1px solid #eee; }}
-    .card-empresa {{
-        background-color: white; padding: 30px; border-radius: 25px;
-        text-align: center; border: 1px solid #eee; transition: 0.4s;
+        color: white; padding: 2.5rem; border-radius: 20px; 
+        box-shadow: 0 10px 25px rgba(0,0,0,0.1); margin-bottom: 2rem;
     }}
     </style>
     """, unsafe_allow_html=True)
 
-# --- 1. FUNCIONES DE DATOS ---
-
-def conectar_github():
-    try:
-        if "GITHUB_TOKEN" not in st.secrets: return None
-        return Github(st.secrets["GITHUB_TOKEN"]).get_repo("RichGuep/movilgo")
-    except: return None
-
-def cargar_excel(nombre_archivo):
-    repo = conectar_github()
-    if not repo: return pd.DataFrame()
-    try:
-        contents = repo.get_contents(nombre_archivo)
-        df = pd.read_excel(io.BytesIO(contents.decoded_content))
-        if 'Fecha_Raw' in df.columns:
-            df['Fecha_Raw'] = pd.to_datetime(df['Fecha_Raw'])
-        return df
-    except: return pd.DataFrame()
-
-def guardar_excel(df, nombre_archivo, mensaje):
-    repo = conectar_github()
-    if not repo: return
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False)
-    try:
-        contents = repo.get_contents(nombre_archivo)
-        repo.update_file(nombre_archivo, mensaje, output.getvalue(), contents.sha)
-        st.success(f"✅ {nombre_archivo} sincronizado con éxito.")
-    except:
-        repo.create_file(nombre_archivo, mensaje, output.getvalue())
-
-# --- 2. MÓDULOS DE INTERFAZ ---
-
 def modulo_inicio():
-    st.markdown(f'<div class="welcome-card"><h1>Panel de Control {st.session_state.empresa}</h1><p>Garantizando cobertura T1, T2 y T3 con equidad laboral.</p></div>', unsafe_allow_html=True)
+    st.markdown(f'''
+        <div class="welcome-card">
+            <h1>👋 ¡Bienvenido al Panel de Control {st.session_state.empresa}!</h1>
+            <p style="font-size: 1.2rem; opacity: 0.9;">
+                Garantizando cobertura técnica y operativa por Grupos bajo el cumplimiento de la Reforma Laboral Colombiana 2026.
+            </p>
+        </div>
+    ''', unsafe_allow_html=True)
     
-    df_p = cargar_excel("empleados.xlsx")
-    df_m = cargar_excel("malla_historica.xlsx")
-    
+    df_p = cargar_excel("empleados_grupos.xlsx")
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Técnicos Totales", len(df_p) if not df_p.empty else "0")
-    c2.metric("Grupos Operativos", "4")
-    c3.metric("Deuda Global Descansos", int(df_m['Deuda_Compensatorio'].sum()) if not df_m.empty else "0")
-    c4.metric("Estado de Red", "24/7 Activo", delta="Estable")
+    c1.metric("👷 Personal Registrado", len(df_p) if not df_p.empty else "0")
+    c2.metric("📂 Modelos Activos", len(st.session_state.config_personal))
+    c3.metric("⚖️ Deuda Global", "0 días")
+    c4.metric("📡 Estado de Red", "24/7 Activo", delta="Estable")
 
-    if not df_m.empty:
-        st.subheader("📊 Análisis de Carga Laboral")
-        col_a, col_b = st.columns(2)
-        with col_a:
-            st.write("**Balance de Turnos por Grupo**")
-            st.bar_chart(df_m.groupby(["Grupo", "Turno"]).size().unstack(fill_value=0))
-        with col_b:
-            st.write("**Histórico de Deuda de Compensatorios**")
-            # Mostrar la evolución de la deuda por grupo
-            st.line_chart(df_m.pivot_table(index='Fecha_Raw', columns='Grupo', values='Deuda_Compensatorio'))
+    st.divider()
+    st.subheader("🇨🇴 Contexto Legal Global: Reforma Laboral 2026")
+    inf1, inf2 = st.columns(2)
+    with inf1:
+        st.info("📉 **Reducción de la Jornada Semanal:** Para el año 2026 la jornada ordinaria máxima es de 42 horas semanales. El sistema controla los acumulados semanales por empleado.")
+    with inf2:
+        st.warning("🛌 **Descansos Compensatorios:** El sistema genera deudas automáticas individuales de compensación cuando las necesidades del servicio obligan a laborar en días de descanso base.")
 
-def modulo_personal():
-    st.header("👥 Gestión de Plantilla y Roles")
-    df_emp = cargar_excel("empleados.xlsx")
-    
-    if df_emp.empty:
-        st.warning("⚠️ No hay personal registrado. Por favor, agregue técnicos a la tabla.")
-        df_emp = pd.DataFrame(columns=["Nombre", "Cargo", "Cedula", "Grupo"])
-    
-    st.info("💡 Clasifique al personal como Master, Técnico A o Técnico B para que el sistema valide el requerimiento diario.")
-    df_edit = st.data_editor(df_emp, use_container_width=True, num_rows="dynamic", key="editor_plantilla")
-    
-    if st.button("💾 Guardar Cambios en GitHub"):
-        guardar_excel(df_edit, "empleados.xlsx", "Actualización de Personal")
-        st.rerun()
-
-def modulo_detallado():
-    st.header("📋 Detallado Programación por Técnico")
-    df_m = cargar_excel("malla_historica.xlsx")
-    df_e = cargar_excel("empleados.xlsx")
-    
-    if df_m.empty or df_e.empty:
-        st.error("⚠️ Datos insuficientes para generar el reporte detallado."); return
-
-    # Cruzar datos
-    df_e["Grupo"] = df_e["Grupo"].astype(str)
-    df_m["Grupo"] = df_m["Grupo"].astype(str)
-    df_det = df_e.merge(df_m, on="Grupo")
-    
-    # Filtro por cargo o grupo
-    st.sidebar.subheader("Filtros de Vista")
-    filtro_grupo = st.sidebar.multiselect("Filtrar por Grupo:", options=list(df_e['Grupo'].unique()), default=list(df_e['Grupo'].unique()))
-    
-    df_v = df_det[df_det['Grupo'].isin(filtro_grupo)]
-    
-    matriz = df_v.pivot_table(
-        index=["Grupo", "Nombre", "Cargo"], 
-        columns="Fecha_Col", 
-        values="Turno", 
-        aggfunc='first'
-    ).reindex(columns=df_m["Fecha_Col"].unique())
-
-    st.dataframe(matriz, use_container_width=True)
-
-# --- 3. FLUJO PRINCIPAL ---
-
+if 'splash_done' not in st.session_state: st.session_state.splash_done = False
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False
-if 'empresa' not in st.session_state: st.session_state.empresa = None
+if 'empresa' not in st.session_state: st.session_state.empresa = "Grupo Movil"
 
-if not st.session_state.logged_in:
-    _, col, _ = st.columns([1, 1.2, 1])
-    with col:
-        st.image(LOGO_APP, use_container_width=True)
-        st.markdown("<h2 style='text-align:center;'>Portal de Acceso</h2>", unsafe_allow_html=True)
-        with st.container(border=True):
-            user = st.text_input("Usuario Operativo")
-            pw = st.text_input("Contraseña", type="password")
-            if st.button("Iniciar Sesión"):
-                st.session_state.logged_in = True
-                st.rerun()
+if not st.session_state.splash_done:
+    st.markdown('<div style="text-align:center; margin-top:15vh;">', unsafe_allow_html=True)
+    st.image(LOGO_MÓVILGO, width=550)
+    st.markdown("<h1 style='color:#1E3D59;'>Optimizer Pro 2026</h1>", unsafe_allow_html=True)
+    if st.button("INGRESAR AL PORTAL"):
+        st.session_state.splash_done = True
+        st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
 
-elif st.session_state.empresa is None:
-    st.markdown("<h2 style='text-align:center; padding: 2rem;'>Seleccione Unidad de Negocio</h2>", unsafe_allow_html=True)
-    _, col, _ = st.columns([1, 1.5, 1])
-    with col:
-        st.markdown(f'<div class="card-empresa"><img src="{LOGO_CABLE}" width="200"><h3>Cable Móvil</h3><p>Soporte Técnico y Redes</p></div>', unsafe_allow_html=True)
-        if st.button("Gestionar Cable Móvil"):
-            st.session_state.empresa = "Cable Móvil"
+elif not st.session_state.logged_in:
+    st.markdown('<div style="max-width:450px; margin:10vh auto; background:white; padding:3rem; border-radius:25px; box-shadow: 0 15px 35px rgba(0,0,0,0.15);">', unsafe_allow_html=True)
+    st.image(LOGO_MÓVILGO, width=180)
+    st.markdown("### **Acceso Administrativo**")
+    u = st.text_input("Usuario", placeholder="admin")
+    p = st.text_input("Contraseña", type="password", placeholder="••••••••")
+    if st.button("INICIAR SESIÓN"):
+        if u == "admin" and p == "movilgo2026":
+            st.session_state.logged_in = True
             st.rerun()
+        else:
+            st.error("Credenciales incorrectas")
+    st.markdown('</div>', unsafe_allow_html=True)
 
 else:
-
     with st.sidebar:
-        st.image(LOGO_CABLE, width=150)
+        st.image(LOGO_MÓVILGO, use_container_width=True)
         st.divider()
-
-        menu = st.radio(
-            "NAVEGACIÓN",
-            [
-                "🏠 Inicio",
-                "📅 Programación",
-                "📋 Reporte Detallado",
-                "👥 Personal",
-                "🧩 Grupos"
-            ]
-        )
-
-        st.divider()
-
-        if st.button("🚪 Salir del Sistema"):
-            st.session_state.empresa = None
+        menu = st.radio("NAVEGACIÓN", ["🏠 Inicio", "👥 Personal", "📅 Programación"])
+        if st.button("🚪 Cerrar Sesión"):
+            st.session_state.logged_in = False
+            st.session_state.splash_done = False
             st.rerun()
 
-    # =====================================================
-    # ROUTER LIMPIO (CORREGIDO)
-    # =====================================================
-
-    if menu == "🏠 Inicio":
-        modulo_inicio()
-
-    elif menu == "📅 Programación":
-        pantalla_programador()
-
-    elif menu == "📋 Reporte Detallado":
-        modulo_detallado()
-
-    elif menu == "👥 Personal":
-        modulo_personal()
-
-    elif menu == "🧩 Grupos":
-        pantalla_asignacion_grupos()
+    if menu == "🏠 Inicio": modulo_inicio()
+    elif menu == "👥 Personal": pantalla_personal()
+    elif menu == "📅 Programación": pantalla_programador()
