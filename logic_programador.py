@@ -6,7 +6,7 @@ import holidays
 import io
 import os
 import json
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine
 from dotenv import load_dotenv
 
 # =========================================================
@@ -25,6 +25,7 @@ COLORES_MAP = {
 }
 
 def style_malla(df_pivot):
+    """Aplica el formato visual con colores de turnos y resalta Sábados, Domingos y Festivos de Colombia."""
     styles = pd.DataFrame('', index=df_pivot.index, columns=df_pivot.columns)
     for col in df_pivot.columns:
         es_fin_semana = False
@@ -49,65 +50,36 @@ def style_malla(df_pivot):
     return df_pivot.style.apply(lambda _: styles, axis=None)
 
 # =========================================================
-# 2. CONECTIVIDAD BASE DE DATOS (POSTGRESQL / SQLITE)
+# 2. CONECTIVIDAD BASE DE DATOS (REEMPLAZO DE GITHUB)
 # =========================================================
 load_dotenv()
-# Magia aquí: Si no hay variables, crea una base de datos local llamada movilgo_local.db
+# Si no encuentra PostgreSQL, usará SQLite local para que no tengas errores
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///movilgo_local.db")
 engine = create_engine(DATABASE_URL)
 
-# Crear tabla de ajustes manuales si no existe
-with engine.begin() as conn:
-    conn.execute(text("""
-        CREATE TABLE IF NOT EXISTS programacion_turnos (
-            sujeto VARCHAR(100),
-            fecha VARCHAR(20),
-            turno VARCHAR(20),
-            PRIMARY KEY (sujeto, fecha)
-        )
-    """))
-
-def cargar_empleados_bd():
+def cargar_excel(nombre_archivo):
+    """Simula la función original, pero leyendo desde BD o disco local"""
     try:
-        return pd.read_sql("SELECT * FROM empleados", engine)
-    except Exception:
+        if nombre_archivo == "empleados_grupos.xlsx":
+            return pd.read_sql("SELECT * FROM empleados_grupos", engine)
+        elif nombre_archivo == "empleados.xlsx":
+            # Lee el archivo base desde la carpeta de tu proyecto
+            if os.path.exists("empleados.xlsx"):
+                return pd.read_excel("empleados.xlsx")
+            else:
+                st.error("⚠️ No se encontró el archivo local 'empleados.xlsx'")
+                return pd.DataFrame()
+    except Exception: 
         return pd.DataFrame()
 
-def guardar_empleados_bd(df):
-    df.to_sql("empleados", engine, if_exists="replace", index=False)
-    st.toast("✅ Plantilla operativa guardada en la Base de Datos.")
-
-def cargar_ajustes_bd():
-    try:
-        df = pd.read_sql("SELECT * FROM programacion_turnos", engine)
-        ajustes = {}
-        for _, row in df.iterrows():
-            ajustes[(row['sujeto'], row['fecha'])] = row['turno']
-        return ajustes
-    except Exception:
-        return {}
-
-def guardar_ajuste_bd(sujeto, fecha, turno):
-    with engine.begin() as conn:
-        conn.execute(text("DELETE FROM programacion_turnos WHERE sujeto = :s AND fecha = :f"), {"s": sujeto, "f": fecha})
-        conn.execute(text("INSERT INTO programacion_turnos (sujeto, fecha, turno) VALUES (:s, :f, :t)"), {"s": sujeto, "f": fecha, "t": turno})
-
-def limpiar_y_guardar_malla_bd(ajustes_dict):
-    with engine.begin() as conn:
-        conn.execute(text("DELETE FROM programacion_turnos"))
-        for (sujeto, fecha), turno in ajustes_dict.items():
-            conn.execute(text("INSERT INTO programacion_turnos (sujeto, fecha, turno) VALUES (:s, :f, :t)"), {"s": sujeto, "f": fecha, "t": turno})
-
-def cargar_ajustes_a_session():
-    """Sincroniza la BD con los diccionarios en memoria de Streamlit"""
-    ajustes_db = cargar_ajustes_bd()
-    st.session_state.ajustes_manuales = {}
-    st.session_state.m_personas_editada = {}
-    for (sujeto, fecha), turno in ajustes_db.items():
-        if sujeto in GRUPOS_TEC or sujeto == "Abordaje":
-            st.session_state.ajustes_manuales[(sujeto, fecha)] = turno
-        else:
-            st.session_state.m_personas_editada[(sujeto, fecha)] = turno
+def guardar_github(df, nombre_archivo):
+    """Simula la función original, pero guardando en PostgreSQL"""
+    if nombre_archivo == "empleados_grupos.xlsx":
+        try:
+            df.to_sql("empleados_grupos", engine, if_exists="replace", index=False)
+            st.toast("✅ Archivo actualizado en la Base de Datos.")
+        except Exception as e:
+            st.error(f"Error guardando en BD: {e}")
 
 # =========================================================
 # 3. GESTIÓN DE PERSONAL
@@ -146,17 +118,17 @@ def pantalla_personal():
 
     c1, c2 = st.columns(2)
     with c1:
-        # Ahora carga el excel base localmente (como plantilla)
-        archivo_base = st.file_uploader("📥 Subir archivo base empleados (.xlsx)", type=["xlsx"])
-        if archivo_base is not None:
-            df = pd.read_excel(archivo_base)
+        if st.button("📥 Cargar empleados.xlsx Base"):
+            df = cargar_excel("empleados.xlsx")
             if not df.empty: 
                 st.session_state.df_pers_ready = df
                 st.success("Personal base cargado.")
     with c2:
-        if st.button("🎲 Ejecutar Clasificación Aleatoria") and not st.session_state.df_pers_ready.empty:
-            st.session_state.df_pers_ready = asignar_grupos_automatico(st.session_state.df_pers_ready)
-            st.success("Distribución cuadrilla lista.")
+        if st.button("🎲 Ejecutar Clasificación Aleatoria"):
+            df_base = cargar_excel("empleados.xlsx")
+            if not df_base.empty:
+                st.session_state.df_pers_ready = asignar_grupos_automatico(df_base)
+                st.success("Distribución cuadrilla guardada.")
 
     if not st.session_state.df_pers_ready.empty:
         st.markdown("---")
@@ -173,15 +145,15 @@ def pantalla_personal():
             },
             key="personal_dropdown_v20"
         )
-        if st.button("💾 Guardar Estructura Definitiva en Base de Datos"):
+        if st.button("💾 Guardar Estructura Definitiva en GitHub"):
             st.session_state.df_pers_ready = df_edit
-            guardar_empleados_bd(df_edit)
+            guardar_github(df_edit, "empleados_grupos.xlsx")
 
 # =========================================================
 # 4. MOTOR DE ASIGNACIÓN CON COBERTURA Y RESCATE AUTOMÁTICO
 # =========================================================
 def generar_malla_tecnicos_avanzado(inicio, fin, descansos_iniciales, conceder_compensatorio, tipo_ciclo_descanso, activar_t4=False):
-    df_emp = cargar_empleados_bd()
+    df_emp = cargar_excel("empleados_grupos.xlsx")
     if df_emp.empty: return pd.DataFrame()
     
     filas, deudas = [], {g: 0 for g in GRUPOS_TEC}
@@ -204,6 +176,7 @@ def generar_malla_tecnicos_avanzado(inicio, fin, descansos_iniciales, conceder_c
             idx_rotado = (idx_inicial + desplazamiento) % len(pool_descansos)
             descansos_vivos[g] = pool_descansos[idx_rotado]
 
+        # LÓGICA ORIGINAL DE DESCANSOS (ESTRICTAMENTE INTACTA)
         gps_h = [g for g, d in descansos_vivos.items() if d == dia_n]
         if len(gps_h) > 1:
             idx = sem % len(gps_h); d_r = gps_h[idx]; asig[d_r] = "DESCANSO"
@@ -212,12 +185,14 @@ def generar_malla_tecnicos_avanzado(inicio, fin, descansos_iniciales, conceder_c
         elif len(gps_h) == 1: 
             asig[gps_h[0]] = "DESCANSO"
         
+        # Compensatorios L-V Original
         if 0 <= fecha.weekday() <= 4 and conceder_compensatorio:
             g_d = sorted([g for g, d in deudas.items() if d > 0 and g not in asig], key=lambda x: deudas[x], reverse=True)
             if g_d: 
                 asig[g_d[0]] = "COMPENSADO"
                 deudas[g_d[0]] -= 1
 
+        # ASIGNACIÓN DINÁMICA DE TURNOS SEGÚN EQUIPOS ACTIVOS
         hay_descanso_hoy = any(asig.get(g) in ["DESCANSO", "COMPENSADO"] for g in GRUPOS_TEC)
 
         if hay_descanso_hoy:
@@ -239,7 +214,6 @@ def generar_malla_tecnicos_avanzado(inicio, fin, descansos_iniciales, conceder_c
 
         for g in GRUPOS_TEC:
             turno_final = asig.get(g, "DESCANSO")
-            # Valida si hay un ajuste en la sesión/BD
             if "ajustes_manuales" in st.session_state and (g, fecha_str) in st.session_state.ajustes_manuales:
                 turno_final = st.session_state.ajustes_manuales[(g, fecha_str)]
             filas.append({"Fecha": fecha, "Sujeto": g, "Turno": turno_final})
@@ -247,7 +221,7 @@ def generar_malla_tecnicos_avanzado(inicio, fin, descansos_iniciales, conceder_c
     return pd.DataFrame(filas)
 
 # =========================================================
-# 5. CÁLCULO DE RECARGOS Y HORAS EXTRAS INTEGRAL
+# 5. CÁLCULO DE RECARGOS Y HORAS EXTRAS INTEGRAL (REFORMA)
 # =========================================================
 def obtener_minutos_desde_time(objeto_hora):
     if objeto_hora is None: return None
@@ -282,6 +256,7 @@ def calcular_metricas_reforma(inicio_str, fin_str, fecha_ts):
         
     total_horas = minutos_totales / 60.0
     
+    # Si las horas corresponden a la franja del disponible de 7 horas, garantizamos 0 extras
     if (inicio_str == "06:30" and fin_str == "13:30") or (inicio_str == "13:30" and fin_str == "20:30"):
         horas_extras = 0.0
     else:
@@ -335,7 +310,7 @@ def verificar_alarmas_cambios_drasticos(df_plano):
     return alertas
 
 def generar_reporte_detallado(df_final, config_horas, config_descansos, activar_t4=False):
-    df_emp = cargar_empleados_bd()
+    df_emp = cargar_excel("empleados_grupos.xlsx")
     if df_emp.empty: return pd.DataFrame()
     
     filas_reporte = []
@@ -358,7 +333,9 @@ def generar_reporte_detallado(df_final, config_horas, config_descansos, activar_
             turno = m_fila['Turno']
             fecha_dt = m_fila['Fecha']
             fecha_str = fecha_dt.strftime('%Y-%m-%d')
+            es_fin_semana = (fecha_dt.weekday() in [5, 6])
             
+            # 🌟 ASIGNACIÓN EQUITATIVA DE DISPONIBLE (50% T1 y 50% T2 usando el día de la fecha)
             if turno == "DISPONIBLE":
                 factor_rotacion = idx_persona_cargo + fecha_dt.day
                 turno = "T1" if (factor_rotacion % 2 == 0) else "T2"
@@ -366,6 +343,7 @@ def generar_reporte_detallado(df_final, config_horas, config_descansos, activar_
             if "m_personas_editada" in st.session_state and (nombre_real, fecha_str) in st.session_state.m_personas_editada:
                 turno = st.session_state.m_personas_editada[(nombre_real, fecha_str)]
 
+            # Ajuste de horario dinámico si el turno resultó de un Disponible desglosado
             if m_fila['Turno'] == "DISPONIBLE":
                 ini = "06:30" if turno == "T1" else "13:30"
                 fin = "13:30" if turno == "T1" else "20:30"
@@ -395,7 +373,7 @@ def generar_reporte_detallado(df_final, config_horas, config_descansos, activar_
     return pd.DataFrame(filas_reporte)
 
 # =========================================================
-# 6. POP-UP FLOTANTE CONTROLADO
+# 6. POP-UP FLOTANTE CONTROLADO CON VALIDADOR DE RESTRICCIONES
 # =========================================================
 @st.dialog("🛠️ Forzar Cambio de Turno Específico", width="small")
 def popup_forzar_ajuste_fecha(fecha_solicitada, opciones_sujetos, es_modo_persona=False):
@@ -417,32 +395,27 @@ def popup_forzar_ajuste_fecha(fecha_solicitada, opciones_sujetos, es_modo_person
                 turno_ayer = st.session_state.ajustes_manuales[(sujeto_sel, fecha_ayer_str)]
 
         if turno_ayer in ["T3", "T4"] and nuevo_turno in ["T1", "T2", "DISPONIBLE"]:
-            st.error(f"❌ **Cambio Denegado por Fatiga Crítica:** No se permite pasar de un turno Nocturno ({turno_ayer}) a turnos diurnos sin un día intermedio de descanso.")
+            st.error(f"❌ **Cambio Denegado por Fatiga Crítica:** No se permite pasar de un turno Nocturno ({turno_ayer}) a turnos diurnos ({nuevo_turno}) sin un día intermedio de descanso.")
             return
 
         if turno_ayer == "T2" and nuevo_turno == "T1":
             st.error("❌ **Cambio Denegado:** Transición descendente corta inválida (T2 -> T1).")
             return
 
-        # GUARDAR EN BASE DE DATOS
-        guardar_ajuste_bd(sujeto_sel, fecha_solicitada, nuevo_turno)
-
-        # Actualizar Session State
         if es_modo_persona: 
             st.session_state.m_personas_editada[(sujeto_sel, fecha_solicitada)] = nuevo_turno
         else: 
             st.session_state.ajustes_manuales[(sujeto_sel, fecha_solicitada)] = nuevo_turno
             
-        st.success("¡Turno validado y guardado en Base de Datos exitosamente!")
+        st.success("¡Turno validado y registrado exitosamente!")
         st.rerun()
 
 # =========================================================
 # 7. INTERFAZ OPERATIVA PRINCIPAL
 # =========================================================
 def pantalla_programador():
-    # Cargar ajustes de la BD a la memoria la primera vez
-    if "ajustes_manuales" not in st.session_state or "m_personas_editada" not in st.session_state: 
-        cargar_ajustes_a_session()
+    if "ajustes_manuales" not in st.session_state: st.session_state.ajustes_manuales = {}
+    if "m_personas_editada" not in st.session_state: st.session_state.m_personas_editada = {}
 
     st.sidebar.markdown("---")
     st.sidebar.subheader("📥 Carga de Mallas Externas")
@@ -451,25 +424,23 @@ def pantalla_programador():
     if archivo_malla is not None:
         try:
             df_cargado_raw = pd.read_excel(archivo_malla)
-            if st.sidebar.button("🔄 Importar a BD y Evaluar Malla"):
+            if st.sidebar.button("🔄 Importar y Evaluar Malla"):
                 df_aplanado = procesar_archivo_malla_externa(df_cargado_raw)
                 if not df_aplanado.empty:
-                    nuevos_ajustes = {}
+                    st.session_state.ajustes_manuales = {}
+                    st.session_state.m_personas_editada = {}
                     for _, row in df_aplanado.iterrows():
                         f_str = pd.to_datetime(row["Fecha"]).strftime('%Y-%m-%d')
-                        nuevos_ajustes[(row["Sujeto"], f_str)] = row["Turno"]
-                    
-                    # Guarda el bloque completo a la BD
-                    limpiar_y_guardar_malla_bd(nuevos_ajustes)
-                    cargar_ajustes_a_session() # Recarga
-                    st.sidebar.success("✅ Malla importada y guardada en BD con éxito.")
+                        st.session_state.ajustes_manuales[(row["Sujeto"], f_str)] = row["Turno"]
+                    st.sidebar.success("✅ Malla importada con éxito.")
                     st.rerun()
         except Exception as e: st.sidebar.error(f"Error de lectura: {str(e)}")
 
     st.markdown("### ⚙️ Panel de Parámetros Avanzados de Cuadrilla")
     conceder_compensatorio = st.checkbox("⚖️ Otorgar días Compensatorios por Cobertura Dominical (Reforma Laboral)", value=True)
     tipo_ciclo_descanso = st.selectbox("🔄 Ciclo de Rotación Temporal para los días de Descanso Base:", options=["Fijo sin rotación", "Mensual", "Trimestral"])
-    activar_t4 = st.toggle("⚡ Activar Esquema de Cuadrilla Eficiente (T4 - 7 Horas L-V)", value=False)
+    
+    activar_t4 = st.toggle("⚡ Activar Esquema de Cuadrilla Eficiente (T4 - 7 Horas L-V)", value=False, help="Activa el T4 de Lunes a Viernes para optimizar costos de operación y mitigar recargos. Sábados y Domingos regresará automáticamente a esquema T3 para proteger fines de semana.")
 
     with st.expander("⏰ Configuración Rangos de Jornada", expanded=False):
         config_h = {}
@@ -500,8 +471,8 @@ def pantalla_programador():
         st.session_state.m_base = generar_malla_tecnicos_avanzado(inicio, fin, desc_data, conceder_compensatorio, tipo_ciclo_descanso, activar_t4)
 
     if st.button("🚀 GENERAR MALLA CON REGLAS Y ROTACIÓN DE DESCANSOS"):
-        # Al recalcular reglas base, se limpia la base de datos de ajustes manuales si así se desea
-        # Pero por ahora mantenemos los ajustes persistentes
+        st.session_state.ajustes_manuales = {}
+        st.session_state.m_personas_editada = {}
         st.session_state.m_base = generar_malla_tecnicos_avanzado(inicio, fin, desc_data, conceder_compensatorio, tipo_ciclo_descanso, activar_t4)
 
     if 'm_base' in st.session_state and not st.session_state.m_base.empty:
