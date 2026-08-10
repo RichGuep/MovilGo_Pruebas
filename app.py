@@ -10,6 +10,9 @@ try:
 except ImportError:
     st.error("⚠️ No se encontró 'logic_programador.py' (Motor de Cablemovil).")
 
+# NOTA: Próximamente importaremos aquí el motor de abordaje:
+# from logic_abordaje import pantalla_abordaje
+
 # --- 1. CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
     page_title="MovilGo - Hub Corporativo", 
@@ -42,20 +45,17 @@ def cargar_configuracion():
 if 'config_personal' not in st.session_state:
     st.session_state.config_personal = cargar_configuracion()
 
-# --- 2. ESTILOS CSS CORREGIDOS (Fondo Blanco / Letras Azules) ---
+# --- 2. ESTILOS CSS CORREGIDOS ---
 PRIMARY_COLOR = "#1E3D59" 
 st.markdown(f"""
     <style>
-    /* Fondo general de la aplicación */
     .stApp {{ background-color: #F4F7F6; }}
     
-    /* 1️⃣ BARRA LATERAL (SIDEBAR) BLANCA */
     [data-testid="stSidebar"] {{ 
         background-color: #FFFFFF !important; 
         border-right: 1px solid #E5E7EB; 
     }}
     
-    /* 2️⃣ TEXTO DE LA BARRA LATERAL EN AZUL OSCURO */
     [data-testid="stSidebar"] p, 
     [data-testid="stSidebar"] span, 
     [data-testid="stSidebar"] label, 
@@ -68,7 +68,6 @@ st.markdown(f"""
         font-weight: 600;
     }}
     
-    /* 3️⃣ CAJA DE CARGA DE ARCHIVOS (MALLAS EXTERNAS) */
     [data-testid="stSidebar"] [data-testid="stFileUploader"] {{
         background-color: #F8F9FA !important;
         padding: 15px;
@@ -76,12 +75,10 @@ st.markdown(f"""
         border: 2px dashed {PRIMARY_COLOR} !important;
         margin-bottom: 15px;
     }}
-    /* Forzar que la letra del file uploader sea azul */
     [data-testid="stSidebar"] [data-testid="stFileUploader"] section * {{
         color: {PRIMARY_COLOR} !important; 
     }}
     
-    /* 4️⃣ BOTONES GLOBALES (AZUL OSCURO CON TEXTO BLANCO) */
     .stButton>button {{ 
         width: 100%; 
         border-radius: 12px; 
@@ -97,12 +94,10 @@ st.markdown(f"""
         transform: translateY(-3px);
         box-shadow: 0 8px 15px rgba(0,0,0,0.2);
     }}
-    /* Asegurar que el texto dentro del botón siempre sea blanco */
     .stButton>button * {{
         color: #FFFFFF !important;
     }}
 
-    /* Estilos para inputs de texto (Login) */
     .stTextInput>div>div>input {{
         border-radius: 10px;
         border: 1.5px solid #d1d5db;
@@ -114,7 +109,6 @@ st.markdown(f"""
         box-shadow: 0 0 0 2px rgba(30, 61, 89, 0.2);
     }}
 
-    /* Botones Grandes de Selección de Empresa */
     .btn-empresa>button {{
         height: 8em !important;
         font-size: 1.5rem !important;
@@ -127,7 +121,6 @@ st.markdown(f"""
         color: white !important;
     }}
 
-    /* Tarjetas de Bienvenida */
     .welcome-card {{
         background: linear-gradient(135deg, {PRIMARY_COLOR} 0%, #3a6073 100%);
         color: white; 
@@ -248,9 +241,16 @@ else:
         st.image(LOGO_MÓVILGO, use_container_width=True)
         st.markdown(f"<h4 style='text-align:center;'>{st.session_state.empresa_seleccionada}</h4>", unsafe_allow_html=True)
         st.divider()
-        menu = st.radio("Navegación del Sistema", ["🏠 Inicio", "👥 Personal", "📅 Programación"])
-        st.divider()
         
+        # MENÚ ACTUALIZADO CON LOS DOS TIPOS DE PROGRAMACIÓN
+        menu = st.radio("Navegación del Sistema", [
+            "🏠 Inicio", 
+            "👥 Personal", 
+            "🔧 Prog. Técnicos", 
+            "🚀 Prog. Abordaje"
+        ])
+        
+        st.divider()
         if st.button("🔄 Cambiar de Empresa"):
             st.session_state.empresa_seleccionada = None
             st.rerun()
@@ -261,7 +261,7 @@ else:
             st.session_state.empresa_seleccionada = None
             st.rerun()
 
-    # --- RUTEO DE LÓGICA SEGÚN EMPRESA ---
+    # --- RUTEO DE LÓGICA SEGÚN EMPRESA Y MENÚ ---
     if menu == "🏠 Inicio": 
         modulo_inicio()
         
@@ -269,10 +269,16 @@ else:
         if st.session_state.empresa_seleccionada == "Cablemovil SAS":
             pantalla_personal()
         elif st.session_state.empresa_seleccionada == "Greenmovil SAS":
-            st.info("🛠️ El módulo de personal para Greenmovil SAS está en construcción. Aquí conectaremos 'logic_greenmovil.py' próximamente.")
+            st.info("🛠️ El módulo de personal para Greenmovil SAS está en construcción.")
             
-    elif menu == "📅 Programación": 
+    elif menu == "🔧 Prog. Técnicos": 
         if st.session_state.empresa_seleccionada == "Cablemovil SAS":
             pantalla_programador()
         elif st.session_state.empresa_seleccionada == "Greenmovil SAS":
-            st.warning("🛠️ El módulo de programación para Greenmovil SAS está en desarrollo.")
+            st.warning("🛠️ El módulo técnico para Greenmovil SAS está en desarrollo.")
+            
+    elif menu == "🚀 Prog. Abordaje":
+        if st.session_state.empresa_seleccionada == "Cablemovil SAS":
+            st.info("🎯 **Espacio listo para el Motor de Abordaje.** Aquí conectaremos las nuevas reglas, parámetros y horarios que definas para este personal.")
+        elif st.session_state.empresa_seleccionada == "Greenmovil SAS":
+            st.warning("🛠️ El módulo de abordaje para Greenmovil SAS está en desarrollo.")
