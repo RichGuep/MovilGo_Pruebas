@@ -157,9 +157,11 @@ def generar_malla_tecnicos_avanzado(inicio, fin, descansos_iniciales, conceder_c
     filas = []
     deudas = {g: 0 for g in GRUPOS_TEC}
     
-    # Memoria de Estados: 0=T1, 1=T2, 2=T3, 3=T4/DISP
-    turnos_historia = {g: i for i, g in enumerate(GRUPOS_TEC)} 
-    ayer_descanso = {g: False for g in GRUPOS_TEC}
+    pool_descansos_dinamico = [descansos_iniciales[g] for g in GRUPOS_TEC]
+    
+    # 🌟 NUEVO MOTOR MATEMÁTICO DE FASES (Equidad 100% garantizada)
+    # Cuenta los descansos tomados para saber en qué bloque está el grupo (0=T1, 1=T2, 2=T3, 3=DISP)
+    num_descansos_tomados = {g: 0 for g in GRUPOS_TEC}
     
     for fecha in pd.date_range(inicio, fin):
         dia_n = DIAS_ES[fecha.weekday()]
@@ -173,11 +175,9 @@ def generar_malla_tecnicos_avanzado(inicio, fin, descansos_iniciales, conceder_c
         else: desplazamiento = 0
             
         descansos_vivos = {}
-        for g in GRUPOS_TEC:
-            d_name = descansos_iniciales[g]
-            idx_inicial = DIAS_ES.index(d_name)
-            idx_rotado = (idx_inicial + desplazamiento) % len(DIAS_ES)
-            descansos_vivos[g] = DIAS_ES[idx_rotado]
+        for idx_g, g in enumerate(GRUPOS_TEC):
+            idx_rotado = (idx_g + desplazamiento) % len(pool_descansos_dinamico)
+            descansos_vivos[g] = pool_descansos_dinamico[idx_rotado]
 
         asig = {}
         gps_h = [g for g, d in descansos_vivos.items() if d == dia_n]
@@ -198,35 +198,32 @@ def generar_malla_tecnicos_avanzado(inicio, fin, descansos_iniciales, conceder_c
 
         activos = [g for g in GRUPOS_TEC if g not in asig]
         
-        # 🌟 REGLA DE SALUD 1: Solo avanzar de turno si vienen de descansar
-        for g in activos:
-            if ayer_descanso[g]:
-                turnos_historia[g] = (turnos_historia[g] + 1) % 4
-                
+        # 🌟 CÁLCULO DE FASE ACTUAL (El ciclo asciende equitativamente para todos)
+        fases_hoy = {}
+        for idx_g, g in enumerate(GRUPOS_TEC):
+            # Fase Base: G1 arranca en T1(0), G2 en T2(1)... y rotan solo sumando descansos
+            fases_hoy[g] = (idx_g + num_descansos_tomados[g]) % 4
+
         asignacion_hoy = {}
         usados = set()
         
-        # 🌟 REGLA DE BLOQUES: Mantener el turno de ayer si es esencial (T1, T2, T3)
+        # 1. Asignar los bloques estables primero a quienes les corresponde T1, T2 o T3
         for g in activos:
-            deseado = turnos_historia[g]
-            if deseado < 3 and deseado not in usados:
-                asignacion_hoy[g] = deseado
-                usados.add(deseado)
+            fase = fases_hoy[g]
+            if fase < 3 and fase not in usados:
+                asignacion_hoy[g] = fase
+                usados.add(fase)
                 
-        # 🌟 REGLA DE COBERTURA: Llenar huecos con el grupo comodín (Relevo)
+        # 2. El grupo que esté en su Fase DISP (3) actúa equitativamente como comodín
         faltantes = [t for t in [0, 1, 2] if t not in usados]
         libres = [g for g in activos if g not in asignacion_hoy]
         
         for g in libres:
             if faltantes:
-                asignado = faltantes.pop(0)
-                asignacion_hoy[g] = asignado
-                turnos_historia[g] = asignado # Forzamos la historia para que no salte mañana
+                asignacion_hoy[g] = faltantes.pop(0) # Cubre el hueco de quien descansa
             else:
-                asignacion_hoy[g] = 3
-                turnos_historia[g] = 3
+                asignacion_hoy[g] = 3 # Se queda como Disponible normal
                 
-        # Traductor de Estados a Turnos Reales
         turnos_map = {
             0: "T1", 
             1: "T2", 
@@ -237,10 +234,11 @@ def generar_malla_tecnicos_avanzado(inicio, fin, descansos_iniciales, conceder_c
         for g in GRUPOS_TEC:
             if g in asig:
                 turno_final = asig[g]
-                ayer_descanso[g] = True
+                # Si hoy tomó su descanso base, avanza de fase para mañana
+                if turno_final == "DESCANSO":
+                    num_descansos_tomados[g] += 1
             else:
                 turno_final = turnos_map[asignacion_hoy[g]]
-                ayer_descanso[g] = False
                 
             if "ajustes_manuales" in st.session_state and (g, fecha_str) in st.session_state.ajustes_manuales:
                 turno_final = st.session_state.ajustes_manuales[(g, fecha_str)]
