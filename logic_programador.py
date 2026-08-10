@@ -670,86 +670,188 @@ def pantalla_programador():
 # =========================================================
 GRUPOS_ABO = ["Grupo A1", "Grupo A2", "Grupo A3", "Grupo A4", "Grupo A5", "Grupo A6"]
 
-def generar_malla_abordaje(inicio, fin, descansos_iniciales, rotacion_flotantes):
-    """
-    Motor matemático simplificado para Abordaje.
-    Alterna T1 y T2 entre los grupos activos y ubica a los flotantes para equilibrar la balanza a 11/11.
-    """
+def crear_personal_abordaje(total_personas):
+    """Crea la estructura de la planta dinámicamente según el parámetro escogido"""
     filas = []
-    pool_descansos_dinamico = [descansos_iniciales[g] for g in GRUPOS_ABO]
-    num_descansos_tomados = {g: 0 for g in GRUPOS_ABO}
+    num_flotantes = 4
+    num_regulares = total_personas - num_flotantes
+    
+    # Repartir el personal regular entre los 6 grupos de forma equitativa
+    for i in range(num_regulares):
+        grupo = GRUPOS_ABO[i % 6]
+        filas.append({"Nombre": f"Abordaje_{i+1:02d}", "Grupo": grupo})
+        
+    # Crear a los 4 flotantes en su propio grupo
+    for i in range(num_flotantes):
+        filas.append({"Nombre": f"Flotante_{i+1:02d}", "Grupo": "Flotantes"})
+        
+    return pd.DataFrame(filas)
+
+def generar_malla_abordaje(inicio, fin, descansos_iniciales, total_personas, req_t1, req_t2, req_f, tipo_ciclo):
+    df_pers = crear_personal_abordaje(total_personas)
+    filas = []
+    
+    # Memoria para estabilizar los turnos (Que no salten de T1 a T2 a cada rato)
+    historia_turno = {row["Nombre"]: ("T1" if idx % 2 == 0 else "T2") for idx, row in df_pers.iterrows()}
+    
+    # Extraemos el orden de los días elegidos para la rotación
+    dias_unicos = [descansos_iniciales[g] for g in GRUPOS_ABO]
     
     for fecha in pd.date_range(inicio, fin):
         dia_n = DIAS_ES[fecha.weekday()]
         fecha_str = fecha.strftime('%Y-%m-%d')
+        delta_meses = (fecha.year - inicio.year) * 12 + (fecha.month - inicio.month)
         
-        # 1. Determinar quién descansa hoy (de los 6 grupos)
-        descansos_vivos = {}
+        if tipo_ciclo == "Mensual": desplazamiento = delta_meses
+        elif tipo_ciclo == "Trimestral": desplazamiento = delta_meses // 3
+        elif tipo_ciclo == "Semestral": desplazamiento = delta_meses // 6
+        else: desplazamiento = 0
+            
+        descansos_hoy = []
+        # Aplicamos la rotación matemática sobre los 6 días únicos elegidos
         for idx_g, g in enumerate(GRUPOS_ABO):
-            # Rotación simple: avanzan un día de descanso por cada ciclo completado
-            idx_rotado = (idx_g + num_descansos_tomados[g]) % len(pool_descansos_dinamico)
-            descansos_vivos[g] = pool_descansos_dinamico[idx_rotado]
-
-        asig = {}
-        for g, d in descansos_vivos.items():
-            if d == dia_n:
-                asig[g] = "DESCANSO"
-                num_descansos_tomados[g] += 1
+            idx_rotado = (idx_g + desplazamiento) % 6
+            if dias_unicos[idx_rotado] == dia_n:
+                descansos_hoy.append(g)
                 
-        # 2. Asignar T1 y T2 a los grupos activos
-        activos = [g for g in GRUPOS_ABO if g not in asig]
+        asig_hoy = {}
         
-        # Repartimos mitad T1 y mitad T2
-        for i, g in enumerate(activos):
-            asig[g] = "T1" if i % 2 == 0 else "T2"
+        # 1. Aplicar descanso oficial al grupo que le toca hoy
+        for _, p in df_pers.iterrows():
+            if p["Grupo"] in descansos_hoy:
+                asig_hoy[p["Nombre"]] = "DESCANSO"
+                
+        # 2. Identificar activos
+        activos = [p["Nombre"] for _, p in df_pers.iterrows() if p["Nombre"] not in asig_hoy]
+        trabajadores_requeridos = req_t1 + req_t2 + req_f
+        
+        # 3. Equilibrar sobrantes: Si hay más activos que los que exige la operación, descansan.
+        # Priorizamos dar este descanso extra a los flotantes o a los del grupo A6.
+        while len(activos) > trabajadores_requeridos:
+            candidatos = [a for a in activos if "Flotante" in a]
+            if not candidatos: candidatos = activos
+            sacado = candidatos[-1]
+            asig_hoy[sacado] = "DESCANSO"
+            activos.remove(sacado)
             
-        # 3. Asignar a los Flotantes (Actúan como comodín de equilibrio)
-        if rotacion_flotantes == "Fijo en T1": asig["Flotantes"] = "T1"
-        elif rotacion_flotantes == "Fijo en T2": asig["Flotantes"] = "T2"
-        else: asig["Flotantes"] = "T1" if (fecha.day % 2 == 0) else "T2" # Dinámico
+        # 4. Repartición de 11 T1 y 11 T2 manteniendo la estabilidad
+        pool_t1 = [a for a in activos if historia_turno[a] == "T1"]
+        pool_t2 = [a for a in activos if historia_turno[a] == "T2"]
+        
+        # Llenar T1
+        t1_asig = 0
+        for a in list(pool_t1):
+            if t1_asig < req_t1:
+                asig_hoy[a] = "T1"
+                activos.remove(a)
+                t1_asig += 1
+        # Si faltan T1, le quitamos a T2 y cambiamos su historia
+        while t1_asig < req_t1 and activos:
+            a = activos.pop(0)
+            asig_hoy[a] = "T1"
+            historia_turno[a] = "T1" 
+            t1_asig += 1
             
-        # 4. Construir filas
-        for g in GRUPOS_ABO + ["Flotantes"]:
-            turno_final = asig.get(g, "DESCANSO")
-            # Ajustes manuales si existen
-            if "ajustes_manuales_abo" in st.session_state and (g, fecha_str) in st.session_state.ajustes_manuales_abo:
-                turno_final = st.session_state.ajustes_manuales_abo[(g, fecha_str)]
-            filas.append({"Fecha": fecha, "Sujeto": g, "Turno": turno_final})
+        # Llenar T2
+        t2_asig = 0
+        for a in list(pool_t2):
+            if a in activos and t2_asig < req_t2:
+                asig_hoy[a] = "T2"
+                activos.remove(a)
+                t2_asig += 1
+        while t2_asig < req_t2 and activos:
+            a = activos.pop(0)
+            asig_hoy[a] = "T2"
+            historia_turno[a] = "T2"
+            t2_asig += 1
+            
+        # 5. Los que queden (exactamente 4) serán FLOTANTE
+        for a in activos:
+            asig_hoy[a] = "FLOTANTE"
+            
+        # Ensamblar filas finales
+        for _, p in df_pers.iterrows():
+            turno_final = asig_hoy.get(p["Nombre"], "DESCANSO")
+            if "ajustes_manuales_abo" in st.session_state and (p["Nombre"], fecha_str) in st.session_state.ajustes_manuales_abo:
+                turno_final = st.session_state.ajustes_manuales_abo[(p["Nombre"], fecha_str)]
+                
+            filas.append({
+                "Fecha": fecha,
+                "Grupo": p["Grupo"],
+                "Nombre": p["Nombre"],
+                "Turno": turno_final
+            })
             
     return pd.DataFrame(filas)
 
+def style_malla_abordaje(df_pivot):
+    styles = pd.DataFrame('', index=df_pivot.index, columns=df_pivot.columns)
+    color_map = {"T1": "#D6EAF8", "T2": "#D5F5E3", "FLOTANTE": "#E8DAEF", "DESCANSO": "#1B2631"}
+    
+    for col in df_pivot.columns:
+        es_fin_semana = False
+        try:
+            if pd.to_datetime(col).weekday() in [5, 6]: es_fin_semana = True
+        except: pass
+
+        for idx in df_pivot.index:
+            val = str(df_pivot.at[idx, col]).strip()
+            bg = color_map.get(val, "#1B2631")
+            txt = "white" if val == "DESCANSO" else "#17202A"
+            border = "1.5px solid #7F8C8D" if es_fin_semana else "0.5px solid #D5DBDB"
+            styles.at[idx, col] = f'background-color: {bg}; color: {txt}; font-weight: 700; border: {border};'
+    return df_pivot.style.apply(lambda _: styles, axis=None)
+
 def pantalla_abordaje():
     st.markdown("## 🚀 Panel de Programación - Abordaje Operativo")
-    st.info("Configuración de Turnos Fraccionados: **T1** (04:30 a 13:30) y **T2** (13:30 a 22:30). Meta de cobertura: 11 personas por turno.")
+    st.info("🕒 **Turnos Fraccionados (8h netas):** T1 (04:30 a 13:30) y T2 (13:30 a 22:30). Incluyen 1 hora de descanso intermedia.")
     
     if "ajustes_manuales_abo" not in st.session_state: st.session_state.ajustes_manuales_abo = {}
 
-    st.markdown("### ⚙️ Parámetros de la Cuadrilla de Abordaje")
-    c1, c2 = st.columns(2)
-    inicio = c1.date_input("Inicio Planificación Abordaje", date(2026, 7, 1))
-    fin = c2.date_input("Fin Planificación Abordaje", date(2026, 12, 31))
+    st.markdown("### ⚙️ Parámetros de Personal y Cobertura")
+    c1, c2, c3, c4 = st.columns(4)
+    total_p = c1.number_input("Total Planta (Regulares + Flotantes)", 20, 50, 29)
+    req_t1 = c2.number_input("Cobertura Requerida T1", 1, 20, 11)
+    req_t2 = c3.number_input("Cobertura Requerida T2", 1, 20, 11)
+    req_f = c4.number_input("Cobertura Flotantes", 0, 10, 4)
     
-    st.markdown("**Días de Descanso Base por Grupo (6 Grupos)**")
+    st.markdown("---")
+    c_i, c_f, c_rot = st.columns(3)
+    inicio = c_i.date_input("Inicio Planificación", date(2026, 7, 1), key="i_abo")
+    fin = c_f.date_input("Fin Planificación", date(2026, 12, 31), key="f_abo")
+    tipo_ciclo = c_rot.selectbox("🔄 Ciclo de Rotación de Descanso:", ["Fijo sin rotación", "Mensual", "Trimestral", "Semestral"])
+
+    st.markdown("### 📅 Días de Descanso Base (Regla de Oro: Elegir 6 días únicos)")
     cols = st.columns(6)
     desc_data = {}
     for i, g in enumerate(GRUPOS_ABO):
-        desc_data[g] = cols[i].selectbox(f"Desc. {g[-2:]}", DIAS_ES, index=i % 7, key=f"abo_desc_{g}")
+        desc_data[g] = cols[i].selectbox(f"Desc. {g[-2:]}", DIAS_ES, index=i, key=f"desc_{g}")
         
-    rotacion_flotantes = st.radio("🔄 Estrategia para el Equipo Flotante (4 personas):", 
-                                  ["Equilibrar Dinámicamente (Alternan T1/T2)", "Fijo en T1", "Fijo en T2"], 
-                                  horizontal=True)
+    # Validador de Regla de Oro (No pueden cruzar descansos)
+    dias_seleccionados = list(desc_data.values())
+    if len(dias_seleccionados) != len(set(dias_seleccionados)):
+        st.error("🚨 **Error de Regla de Oro:** Has seleccionado el mismo día de descanso para dos o más grupos. Para garantizar la cobertura cruzada, debes asignar 6 días ÚNICOS diferentes.")
+        bloquear_generacion = True
+    else:
+        st.success("✅ Excelente. Los 6 grupos descansan en días separados. La cobertura será perfecta.")
+        bloquear_generacion = False
                                   
-    if st.button("🚀 GENERAR MALLA DE ABORDAJE"):
-        st.session_state.m_base_abo = generar_malla_abordaje(inicio, fin, desc_data, rotacion_flotantes)
+    if st.button("🚀 GENERAR MALLA INDIVIDUAL DE ABORDAJE", disabled=bloquear_generacion):
+        st.session_state.m_base_abo = generar_malla_abordaje(inicio, fin, desc_data, total_p, req_t1, req_t2, req_f, tipo_ciclo)
         
     if 'm_base_abo' in st.session_state and not st.session_state.m_base_abo.empty:
         df_final = st.session_state.m_base_abo
         
         st.write("---")
-        st.subheader("📋 Malla de Abordaje (Macro)")
-        pivot_grupo = df_final.pivot(index="Sujeto", columns="Fecha", values="Turno").fillna("DESCANSO")
-        pivot_grupo.columns = [p.strftime('%Y-%m-%d') if isinstance(p, (datetime, date, pd.Timestamp)) else str(p) for p in pivot_grupo.columns]
+        st.subheader("👤 Malla de Turnos Detallada por Persona y Grupo")
         
-        st.dataframe(style_malla(pivot_grupo), use_container_width=True)
-
-
+        pivot_persona = df_final.pivot(index=["Grupo", "Nombre"], columns="Fecha", values="Turno").fillna("DESCANSO")
+        pivot_persona.columns = [p.strftime('%Y-%m-%d') if isinstance(p, (datetime, date, pd.Timestamp)) else str(p) for p in pivot_persona.columns]
+        
+        st.dataframe(style_malla_abordaje(pivot_persona), use_container_width=True)
+        
+        # Auditoría de Cobertura Diaria
+        st.markdown("#### 🔍 Auditoría de Cobertura Diaria (Verificación 11-11-4)")
+        auditoria = df_final.groupby(["Fecha", "Turno"]).size().unstack(fill_value=0)
+        auditoria.index = [p.strftime('%Y-%m-%d') for p in auditoria.index]
+        st.dataframe(auditoria[["T1", "T2", "FLOTANTE", "DESCANSO"]], use_container_width=True)
