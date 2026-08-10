@@ -156,13 +156,27 @@ def generar_malla_tecnicos_avanzado(inicio, fin, descansos_iniciales, conceder_c
     
     filas = []
     deudas = {g: 0 for g in GRUPOS_TEC}
-    
     pool_descansos_dinamico = [descansos_iniciales[g] for g in GRUPOS_TEC]
     
-    # 🌟 NUEVO MOTOR MATEMÁTICO DE FASES (Equidad 100% garantizada)
-    # Cuenta los descansos tomados para saber en qué bloque está el grupo (0=T1, 1=T2, 2=T3, 3=DISP)
-    num_descansos_tomados = {g: 0 for g in GRUPOS_TEC}
+    # Memoria histórica para Reglas de Salud y Equidad
+    turno_ayer_dict = {g: "DESCANSO" for g in GRUPOS_TEC}
+    counts = {g: {s: 0 for s in ["T1", "T2", "T3", "T4", "DISPONIBLE"]} for g in GRUPOS_TEC}
     
+    # Función interna para clasificar la "latencia" o peso del turno
+    def get_state(turno):
+        if turno in ["DESCANSO", "COMPENSADO"]: return 0
+        if turno in ["T1", "DISPONIBLE"]: return 1
+        if turno == "T2": return 2
+        if turno == "T3": return 3
+        if turno == "T4": return 4
+        return 0
+        
+    def is_valid(state_ayer, shift_hoy):
+        val_hoy = get_state(shift_hoy)
+        if val_hoy < state_ayer: return False # Prohibido rotar hacia atrás
+        if state_ayer >= 3 and val_hoy < 3: return False # Prohibido salir de T3/T4 sin descansar
+        return True
+
     for fecha in pd.date_range(inicio, fin):
         dia_n = DIAS_ES[fecha.weekday()]
         sem = fecha.isocalendar()[1]
@@ -198,47 +212,58 @@ def generar_malla_tecnicos_avanzado(inicio, fin, descansos_iniciales, conceder_c
 
         activos = [g for g in GRUPOS_TEC if g not in asig]
         
-        # 🌟 CÁLCULO DE FASE ACTUAL (El ciclo asciende equitativamente para todos)
-        fases_hoy = {}
-        for idx_g, g in enumerate(GRUPOS_TEC):
-            # Fase Base: G1 arranca en T1(0), G2 en T2(1)... y rotan solo sumando descansos
-            fases_hoy[g] = (idx_g + num_descansos_tomados[g]) % 4
-
+        # 🌟 CÁLCULO DE TURNOS REQUERIDOS HOY (Ordenados del más crítico al más suave)
+        if activar_t4 and not es_fin_semana:
+            req_shifts = ["T4", "T3", "T2", "T1"]
+        else:
+            req_shifts = ["T3", "T2", "DISPONIBLE", "T1"]
+            
+        # Ajustar si hay menos de 4 grupos activos (ej. 3 grupos -> quitamos el comodín)
+        req_shifts = req_shifts[:len(activos)]
+        
         asignacion_hoy = {}
-        usados = set()
         
-        # 1. Asignar los bloques estables primero a quienes les corresponde T1, T2 o T3
-        for g in activos:
-            fase = fases_hoy[g]
-            if fase < 3 and fase not in usados:
-                asignacion_hoy[g] = fase
-                usados.add(fase)
+        # 🌟 MOTOR DE SATISFACCIÓN DE RESTRICCIONES
+        for shift in req_shifts:
+            best_group = None
+            best_flex = 999  # Flexibilidad (menor = más atrapado, mayor prioridad)
+            best_count = 999 # Equidad (menor = menos horas hechas, mayor prioridad)
+            
+            for g in activos:
+                if g in asignacion_hoy: continue
+                s_ayer = get_state(turno_ayer_dict[g])
                 
-        # 2. El grupo que esté en su Fase DISP (3) actúa equitativamente como comodín
-        faltantes = [t for t in [0, 1, 2] if t not in usados]
-        libres = [g for g in activos if g not in asignacion_hoy]
-        
-        for g in libres:
-            if faltantes:
-                asignacion_hoy[g] = faltantes.pop(0) # Cubre el hueco de quien descansa
+                # REGLA DE SALUD: Si el salto es ilegal, lo descartamos inmediatamente
+                if not is_valid(s_ayer, shift): continue
+                
+                # Calculamos qué tan "atrapado" está este grupo
+                flex = sum(1 for rs in req_shifts if rs not in asignacion_hoy.values() and is_valid(s_ayer, rs))
+                c = counts[g].get(shift, 0)
+                
+                # Priorizamos al que tiene menos opciones válidas. En caso de empate, priorizamos la equidad.
+                if flex < best_flex or (flex == best_flex and c < best_count):
+                    best_flex = flex
+                    best_count = c
+                    best_group = g
+                    
+            if best_group:
+                asignacion_hoy[best_group] = shift
+                counts[best_group][shift] += 1
             else:
-                asignacion_hoy[g] = 3 # Se queda como Disponible normal
-                
-        turnos_map = {
-            0: "T1", 
-            1: "T2", 
-            2: "T3", 
-            3: "T4" if (activar_t4 and not es_fin_semana) else "DISPONIBLE"
-        }
-        
+                # Rescate de emergencia (Solo ocurre si la configuración de descansos es matemáticamente imposible de cubrir)
+                unassigned = [g for g in activos if g not in asignacion_hoy]
+                if unassigned:
+                    fallback_g = min(unassigned, key=lambda g: counts[g].get(shift, 0))
+                    asignacion_hoy[fallback_g] = shift
+                    counts[fallback_g][shift] += 1
+
         for g in GRUPOS_TEC:
             if g in asig:
                 turno_final = asig[g]
-                # Si hoy tomó su descanso base, avanza de fase para mañana
-                if turno_final == "DESCANSO":
-                    num_descansos_tomados[g] += 1
+                turno_ayer_dict[g] = "DESCANSO"
             else:
-                turno_final = turnos_map[asignacion_hoy[g]]
+                turno_final = asignacion_hoy[g]
+                turno_ayer_dict[g] = turno_final
                 
             if "ajustes_manuales" in st.session_state and (g, fecha_str) in st.session_state.ajustes_manuales:
                 turno_final = st.session_state.ajustes_manuales[(g, fecha_str)]
