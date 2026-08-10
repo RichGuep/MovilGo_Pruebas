@@ -5,14 +5,10 @@ import os
 from datetime import datetime, date
 
 # --- IMPORTACIÓN DE MOTORES LÓGICOS ---
-# Aquí importaremos los motores de cada empresa
 try:
     from logic_programador import pantalla_programador, pantalla_personal, cargar_excel
 except ImportError:
     st.error("⚠️ No se encontró 'logic_programador.py' (Motor de Cablemovil).")
-
-# NOTA: Cuando crees la lógica de Greenmovil, la importarás aquí:
-# from logic_greenmovil import pantalla_programador_green, pantalla_personal_green
 
 # --- 1. CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
@@ -46,30 +42,46 @@ def cargar_configuracion():
 if 'config_personal' not in st.session_state:
     st.session_state.config_personal = cargar_configuracion()
 
-# --- 2. ESTILOS CSS AVANZADOS ---
+# --- 2. ESTILOS CSS CORREGIDOS (Fondo Blanco / Letras Azules) ---
 PRIMARY_COLOR = "#1E3D59" 
 st.markdown(f"""
     <style>
+    /* Fondo general de la aplicación */
     .stApp {{ background-color: #F4F7F6; }}
     
+    /* 1️⃣ BARRA LATERAL (SIDEBAR) BLANCA */
     [data-testid="stSidebar"] {{ 
-        background-color: {PRIMARY_COLOR}; 
-        border-right: 1px solid #ffffff22; 
-    }}
-    [data-testid="stSidebar"] * {{ color: white !important; font-weight: 500; }}
-    
-    .stTextInput>div>div>input {{
-        border-radius: 10px;
-        border: 1.5px solid #d1d5db;
-        padding: 12px 15px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-        font-size: 1rem;
-    }}
-    .stTextInput>div>div>input:focus {{
-        border-color: {PRIMARY_COLOR};
-        box-shadow: 0 0 0 2px rgba(30, 61, 89, 0.2);
+        background-color: #FFFFFF !important; 
+        border-right: 1px solid #E5E7EB; 
     }}
     
+    /* 2️⃣ TEXTO DE LA BARRA LATERAL EN AZUL OSCURO */
+    [data-testid="stSidebar"] p, 
+    [data-testid="stSidebar"] span, 
+    [data-testid="stSidebar"] label, 
+    [data-testid="stSidebar"] h1, 
+    [data-testid="stSidebar"] h2, 
+    [data-testid="stSidebar"] h3, 
+    [data-testid="stSidebar"] h4,
+    [data-testid="stSidebar"] div[data-baseweb="radio"] div {{
+        color: {PRIMARY_COLOR} !important;
+        font-weight: 600;
+    }}
+    
+    /* 3️⃣ CAJA DE CARGA DE ARCHIVOS (MALLAS EXTERNAS) */
+    [data-testid="stSidebar"] [data-testid="stFileUploader"] {{
+        background-color: #F8F9FA !important;
+        padding: 15px;
+        border-radius: 12px;
+        border: 2px dashed {PRIMARY_COLOR} !important;
+        margin-bottom: 15px;
+    }}
+    /* Forzar que la letra del file uploader sea azul */
+    [data-testid="stSidebar"] [data-testid="stFileUploader"] section * {{
+        color: {PRIMARY_COLOR} !important; 
+    }}
+    
+    /* 4️⃣ BOTONES GLOBALES (AZUL OSCURO CON TEXTO BLANCO) */
     .stButton>button {{ 
         width: 100%; 
         border-radius: 12px; 
@@ -77,17 +89,32 @@ st.markdown(f"""
         height: 3.2em; 
         transition: all 0.3s ease; 
         border: none; 
-        background: linear-gradient(135deg, {PRIMARY_COLOR} 0%, #3a6073 100%);
-        color: white;
+        background: linear-gradient(135deg, {PRIMARY_COLOR} 0%, #3a6073 100%) !important;
+        color: #FFFFFF !important;
         box-shadow: 0 4px 6px rgba(0,0,0,0.1); 
     }}
     .stButton>button:hover {{
         transform: translateY(-3px);
         box-shadow: 0 8px 15px rgba(0,0,0,0.2);
-        color: #f8f9fa;
     }}
-    
-    /* Botones de Selección de Empresa */
+    /* Asegurar que el texto dentro del botón siempre sea blanco */
+    .stButton>button * {{
+        color: #FFFFFF !important;
+    }}
+
+    /* Estilos para inputs de texto (Login) */
+    .stTextInput>div>div>input {{
+        border-radius: 10px;
+        border: 1.5px solid #d1d5db;
+        padding: 12px 15px;
+        color: {PRIMARY_COLOR} !important;
+    }}
+    .stTextInput>div>div>input:focus {{
+        border-color: {PRIMARY_COLOR};
+        box-shadow: 0 0 0 2px rgba(30, 61, 89, 0.2);
+    }}
+
+    /* Botones Grandes de Selección de Empresa */
     .btn-empresa>button {{
         height: 8em !important;
         font-size: 1.5rem !important;
@@ -100,6 +127,7 @@ st.markdown(f"""
         color: white !important;
     }}
 
+    /* Tarjetas de Bienvenida */
     .welcome-card {{
         background: linear-gradient(135deg, {PRIMARY_COLOR} 0%, #3a6073 100%);
         color: white; 
@@ -109,7 +137,6 @@ st.markdown(f"""
         margin-bottom: 2.5rem;
         text-align: center;
     }}
-    
     .login-title {{
         text-align: center;
         color: {PRIMARY_COLOR};
@@ -124,14 +151,13 @@ st.markdown(f"""
 def modulo_inicio():
     st.markdown(f'''
         <div class="welcome-card">
-            <h1 style="font-size: 2.5rem; font-weight: 800;">👋 ¡Bienvenido al Panel de {st.session_state.empresa_seleccionada}!</h1>
-            <p style="font-size: 1.3rem; opacity: 0.9; margin-top: 10px;">
+            <h1 style="font-size: 2.5rem; font-weight: 800; color: white;">👋 ¡Bienvenido al Panel de {st.session_state.empresa_seleccionada}!</h1>
+            <p style="font-size: 1.3rem; opacity: 0.9; margin-top: 10px; color: white;">
                 Inteligencia Operativa y Sistematización de Turnos.
             </p>
         </div>
     ''', unsafe_allow_html=True)
     
-    # Solo mostramos esto para Cablemovil por ahora, ya que requiere cargar_excel
     if st.session_state.empresa_seleccionada == "Cablemovil SAS":
         try:
             df_p = cargar_excel("empleados_grupos.xlsx") 
@@ -220,12 +246,11 @@ else:
     with st.sidebar:
         st.write("")
         st.image(LOGO_MÓVILGO, use_container_width=True)
-        st.markdown(f"<h4 style='text-align:center; color:white;'>{st.session_state.empresa_seleccionada}</h4>", unsafe_allow_html=True)
+        st.markdown(f"<h4 style='text-align:center;'>{st.session_state.empresa_seleccionada}</h4>", unsafe_allow_html=True)
         st.divider()
         menu = st.radio("Navegación del Sistema", ["🏠 Inicio", "👥 Personal", "📅 Programación"])
         st.divider()
         
-        # Nuevo botón para cambiar de empresa sin cerrar sesión
         if st.button("🔄 Cambiar de Empresa"):
             st.session_state.empresa_seleccionada = None
             st.rerun()
