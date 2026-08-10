@@ -662,3 +662,94 @@ def pantalla_programador():
                     resumen_persona.to_excel(writer, sheet_name="Total_Persona", index=False)
                     resumen_grupo.to_excel(writer, sheet_name="Total_Grupo", index=False)
                 st.download_button("📥 Descargar Reporte Nómina Maestro (.xlsx)", output.getvalue(), f"Nomina_Reforma_Laboral_{date.today()}.xlsx")
+
+
+
+# =========================================================
+# 8. MOTOR Y PANEL DE ABORDAJE (CABLEMOVIL SAS)
+# =========================================================
+GRUPOS_ABO = ["Grupo A1", "Grupo A2", "Grupo A3", "Grupo A4", "Grupo A5", "Grupo A6"]
+
+def generar_malla_abordaje(inicio, fin, descansos_iniciales, rotacion_flotantes):
+    """
+    Motor matemático simplificado para Abordaje.
+    Alterna T1 y T2 entre los grupos activos y ubica a los flotantes para equilibrar la balanza a 11/11.
+    """
+    filas = []
+    pool_descansos_dinamico = [descansos_iniciales[g] for g in GRUPOS_ABO]
+    num_descansos_tomados = {g: 0 for g in GRUPOS_ABO}
+    
+    for fecha in pd.date_range(inicio, fin):
+        dia_n = DIAS_ES[fecha.weekday()]
+        fecha_str = fecha.strftime('%Y-%m-%d')
+        
+        # 1. Determinar quién descansa hoy (de los 6 grupos)
+        descansos_vivos = {}
+        for idx_g, g in enumerate(GRUPOS_ABO):
+            # Rotación simple: avanzan un día de descanso por cada ciclo completado
+            idx_rotado = (idx_g + num_descansos_tomados[g]) % len(pool_descansos_dinamico)
+            descansos_vivos[g] = pool_descansos_dinamico[idx_rotado]
+
+        asig = {}
+        for g, d in descansos_vivos.items():
+            if d == dia_n:
+                asig[g] = "DESCANSO"
+                num_descansos_tomados[g] += 1
+                
+        # 2. Asignar T1 y T2 a los grupos activos
+        activos = [g for g in GRUPOS_ABO if g not in asig]
+        
+        # Repartimos mitad T1 y mitad T2
+        for i, g in enumerate(activos):
+            asig[g] = "T1" if i % 2 == 0 else "T2"
+            
+        # 3. Asignar a los Flotantes (Actúan como comodín de equilibrio)
+        if rotacion_flotantes == "Fijo en T1": asig["Flotantes"] = "T1"
+        elif rotacion_flotantes == "Fijo en T2": asig["Flotantes"] = "T2"
+        else: asig["Flotantes"] = "T1" if (fecha.day % 2 == 0) else "T2" # Dinámico
+            
+        # 4. Construir filas
+        for g in GRUPOS_ABO + ["Flotantes"]:
+            turno_final = asig.get(g, "DESCANSO")
+            # Ajustes manuales si existen
+            if "ajustes_manuales_abo" in st.session_state and (g, fecha_str) in st.session_state.ajustes_manuales_abo:
+                turno_final = st.session_state.ajustes_manuales_abo[(g, fecha_str)]
+            filas.append({"Fecha": fecha, "Sujeto": g, "Turno": turno_final})
+            
+    return pd.DataFrame(filas)
+
+def pantalla_abordaje():
+    st.markdown("## 🚀 Panel de Programación - Abordaje Operativo")
+    st.info("Configuración de Turnos Fraccionados: **T1** (04:30 a 13:30) y **T2** (13:30 a 22:30). Meta de cobertura: 11 personas por turno.")
+    
+    if "ajustes_manuales_abo" not in st.session_state: st.session_state.ajustes_manuales_abo = {}
+
+    st.markdown("### ⚙️ Parámetros de la Cuadrilla de Abordaje")
+    c1, c2 = st.columns(2)
+    inicio = c1.date_input("Inicio Planificación Abordaje", date(2026, 7, 1))
+    fin = c2.date_input("Fin Planificación Abordaje", date(2026, 12, 31))
+    
+    st.markdown("**Días de Descanso Base por Grupo (6 Grupos)**")
+    cols = st.columns(6)
+    desc_data = {}
+    for i, g in enumerate(GRUPOS_ABO):
+        desc_data[g] = cols[i].selectbox(f"Desc. {g[-2:]}", DIAS_ES, index=i % 7, key=f"abo_desc_{g}")
+        
+    rotacion_flotantes = st.radio("🔄 Estrategia para el Equipo Flotante (4 personas):", 
+                                  ["Equilibrar Dinámicamente (Alternan T1/T2)", "Fijo en T1", "Fijo en T2"], 
+                                  horizontal=True)
+                                  
+    if st.button("🚀 GENERAR MALLA DE ABORDAJE"):
+        st.session_state.m_base_abo = generar_malla_abordaje(inicio, fin, desc_data, rotacion_flotantes)
+        
+    if 'm_base_abo' in st.session_state and not st.session_state.m_base_abo.empty:
+        df_final = st.session_state.m_base_abo
+        
+        st.write("---")
+        st.subheader("📋 Malla de Abordaje (Macro)")
+        pivot_grupo = df_final.pivot(index="Sujeto", columns="Fecha", values="Turno").fillna("DESCANSO")
+        pivot_grupo.columns = [p.strftime('%Y-%m-%d') if isinstance(p, (datetime, date, pd.Timestamp)) else str(p) for p in pivot_grupo.columns]
+        
+        st.dataframe(style_malla(pivot_grupo), use_container_width=True)
+
+
