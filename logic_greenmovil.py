@@ -44,6 +44,7 @@ def pantalla_personal_green():
             if "Nombre" in df_cargado.columns and "Cargo" in df_cargado.columns:
                 if "Cedula" not in df_cargado.columns: df_cargado["Cedula"] = "0"
                 if "Zona" not in df_cargado.columns: df_cargado["Zona"] = "ZMO III"
+                df_cargado["Cedula"] = df_cargado["Cedula"].fillna(0).astype(int).astype(str)
                 df_cargado["Descanso Base"] = "Domingo" # Descanso por contrato
                 guardar_tabla(df_cargado[["Cedula", "Nombre", "Cargo", "Zona", "Descanso Base"]], "green_personal")
                 st.success("✅ ¡Personal cargado exitosamente!")
@@ -53,7 +54,15 @@ def pantalla_personal_green():
 
     st.write("---")
     df_pers = cargar_tabla("green_personal")
-    if not df_pers.empty and "Descanso Base" not in df_pers.columns: df_pers["Descanso Base"] = "Domingo"
+    
+    # 🛠️ PARCHE DE COMPATIBILIDAD DE TIPOS
+    if not df_pers.empty:
+        if "Descanso Base" not in df_pers.columns: 
+            df_pers["Descanso Base"] = "Domingo"
+        # Forzamos la cédula a ser texto SIEMPRE, para que no choque con el editor
+        df_pers["Cedula"] = df_pers["Cedula"].fillna("").astype(str)
+        # Limpiamos los decimales .0 si SQLite los convirtió a Float
+        df_pers["Cedula"] = df_pers["Cedula"].apply(lambda x: x.split('.')[0] if '.' in x else x)
         
     if df_pers.empty:
         df_pers = pd.DataFrame({"Cedula": [""], "Nombre": [""], "Cargo": [""], "Zona": ["ZMO III"], "Descanso Base": ["Domingo"]})
@@ -229,6 +238,14 @@ def calcular_horas_y_recargos(ini_str, fin_str):
         if (m_actual % 1440) >= 1140 or (m_actual % 1440) < 360: minutos_nocturnos += 1
         m_actual += 1
     return round(total_horas, 2), round(horas_extras, 2), round(minutos_nocturnos / 60.0, 2)
+
+def evaluar_fatiga(turno_ayer_fin, turno_hoy_ini):
+    if turno_ayer_fin == "OFF" or turno_hoy_ini == "OFF": return True
+    t_fin, t_ini = datetime.strptime(turno_ayer_fin, "%H:%M"), datetime.strptime(turno_hoy_ini, "%H:%M")
+    m_fin = t_fin.hour * 60 + t_fin.minute
+    m_ini = t_ini.hour * 60 + t_ini.minute
+    descanso = (1440 - m_fin) + m_ini
+    return descanso >= 480
 
 def generar_malla_dinamica(inicio, fin, df_personal, df_turnos, df_rotaciones, df_novedades):
     filas = []
