@@ -1,283 +1,375 @@
 import streamlit as st
 import pandas as pd
-import json
+from datetime import datetime, date, timedelta
 import os
-from datetime import datetime, date
+from sqlalchemy import create_engine
+from dotenv import load_dotenv
+import io
 
-# --- IMPORTACIÓN DE MOTORES LÓGICOS ---
-try:
-    from logic_greenmovil import pantalla_personal_green, pantalla_parametrizador_green, pantalla_mallas_green
-except ImportError:
-    st.error("⚠️ No se encontró 'logic_greenmovil.py'.")
+# =========================================================
+# 1. CONEXIÓN Y PERSISTENCIA (GREENMOVIL)
+# =========================================================
+load_dotenv()
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///movilgo_local.db")
+engine = create_engine(DATABASE_URL)
 
-try:
-    from logic_programador import pantalla_programador, pantalla_personal, cargar_excel, pantalla_abordaje
-except ImportError:
-    st.error("⚠️ No se encontró 'logic_programador.py' (Motor de Cablemovil).")
+def cargar_tabla(nombre_tabla):
+    try:
+        return pd.read_sql(f"SELECT * FROM {nombre_tabla}", engine)
+    except Exception:
+        return pd.DataFrame()
 
-# --- 1. CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(
-    page_title="MovilGo - Hub Corporativo", 
-    page_icon="🏢",
-    layout="wide", 
-    initial_sidebar_state="expanded"
-)
+def guardar_tabla(df, nombre_tabla):
+    try:
+        df.to_sql(nombre_tabla, engine, if_exists="replace", index=False)
+        return True
+    except Exception as e:
+        st.error(f"Error guardando en BD: {e}")
+        return False
 
-URL_BASE = "https://raw.githubusercontent.com/RichGuep/movilgo/main/"
-LOGO_MÓVILGO = f"{URL_BASE}MovilGo.png"
-CONFIG_FILE = "config_estructural.json"
-
-def cargar_configuracion():
-    if os.path.exists(CONFIG_FILE):
-        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    else:
-        default_config = {
-            "Técnicos": {
-                "descripcion": "Operación de soporte técnico en campo 24/7 por bloques organizados.",
-                "extension_turno": 7,
-                "grupos": ["Grupo 1", "Grupo 2", "Grupo 3", "Grupo 4"],
-                "rotacion": "Determinista por Grupos"
-            }
-        }
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(default_config, f, indent=4, ensure_ascii=False)
-        return default_config
-
-if 'config_personal' not in st.session_state:
-    st.session_state.config_personal = cargar_configuracion()
-
-# --- 2. ESTILOS CSS CORREGIDOS ---
-PRIMARY_COLOR = "#1E3D59" 
-st.markdown(f"""
-    <style>
-    .stApp {{ background-color: #F4F7F6; }}
+# =========================================================
+# 2. PANEL DE PERSONAL Y CARGOS DINÁMICOS
+# =========================================================
+def pantalla_personal_green():
+    st.markdown("## 👥 Personal de Operaciones (Greenmovil)")
+    st.info("💡 **Configuración Dinámica:** Registra a los Técnicos de Control, Auxiliares de Ejecución de la operación e Inspectores de Seguridad Operacional.")
     
-    [data-testid="stSidebar"] {{ 
-        background-color: #FFFFFF !important; 
-        border-right: 1px solid #E5E7EB; 
-    }}
+    st.markdown("### 📥 Carga Masiva desde Excel")
+    st.caption("Asegúrate de que tu archivo tenga en la primera fila las columnas: **Cedula**, **Nombre** y **Cargo**.")
+    archivo_personal = st.file_uploader("Sube tu plantilla de personal (.xlsx o .xls):", type=["xlsx", "xls"], key="up_pers_grn")
     
-    [data-testid="stSidebar"] p, 
-    [data-testid="stSidebar"] span, 
-    [data-testid="stSidebar"] label, 
-    [data-testid="stSidebar"] h1, 
-    [data-testid="stSidebar"] h2, 
-    [data-testid="stSidebar"] h3, 
-    [data-testid="stSidebar"] h4,
-    [data-testid="stSidebar"] div[data-baseweb="radio"] div {{
-        color: {PRIMARY_COLOR} !important;
-        font-weight: 600;
-    }}
-    
-    [data-testid="stSidebar"] [data-testid="stFileUploader"] {{
-        background-color: #F8F9FA !important;
-        padding: 15px;
-        border-radius: 12px;
-        border: 2px dashed {PRIMARY_COLOR} !important;
-        margin-bottom: 15px;
-    }}
-    [data-testid="stSidebar"] [data-testid="stFileUploader"] section * {{
-        color: {PRIMARY_COLOR} !important; 
-    }}
-    
-    .stButton>button {{ 
-        width: 100%; 
-        border-radius: 12px; 
-        font-weight: 700; 
-        height: 3.2em; 
-        transition: all 0.3s ease; 
-        border: none; 
-        background: linear-gradient(135deg, {PRIMARY_COLOR} 0%, #3a6073 100%) !important;
-        color: #FFFFFF !important;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1); 
-    }}
-    .stButton>button:hover {{
-        transform: translateY(-3px);
-        box-shadow: 0 8px 15px rgba(0,0,0,0.2);
-    }}
-    .stButton>button * {{
-        color: #FFFFFF !important;
-    }}
-
-    .stTextInput>div>div>input {{
-        border-radius: 10px;
-        border: 1.5px solid #d1d5db;
-        padding: 12px 15px;
-        color: {PRIMARY_COLOR} !important;
-    }}
-    .stTextInput>div>div>input:focus {{
-        border-color: {PRIMARY_COLOR};
-        box-shadow: 0 0 0 2px rgba(30, 61, 89, 0.2);
-    }}
-
-    .btn-empresa>button {{
-        height: 8em !important;
-        font-size: 1.5rem !important;
-        background: white !important;
-        color: {PRIMARY_COLOR} !important;
-        border: 2px solid {PRIMARY_COLOR} !important;
-    }}
-    .btn-empresa>button:hover {{
-        background: {PRIMARY_COLOR} !important;
-        color: white !important;
-    }}
-
-    .welcome-card {{
-        background: linear-gradient(135deg, {PRIMARY_COLOR} 0%, #3a6073 100%);
-        color: white; 
-        padding: 3rem; 
-        border-radius: 20px; 
-        box-shadow: 0 15px 35px rgba(0,0,0,0.15); 
-        margin-bottom: 2.5rem;
-        text-align: center;
-    }}
-    .login-title {{
-        text-align: center;
-        color: {PRIMARY_COLOR};
-        font-weight: 800;
-        margin-top: 15px;
-        margin-bottom: 5px;
-        font-size: 2.2rem;
-    }}
-    </style>
-    """, unsafe_allow_html=True)
-
-def modulo_inicio():
-    st.markdown(f'''
-        <div class="welcome-card">
-            <h1 style="font-size: 2.5rem; font-weight: 800; color: white;">👋 ¡Bienvenido al Panel de {st.session_state.empresa_seleccionada}!</h1>
-            <p style="font-size: 1.3rem; opacity: 0.9; margin-top: 10px; color: white;">
-                Inteligencia Operativa y Sistematización de Turnos.
-            </p>
-        </div>
-    ''', unsafe_allow_html=True)
-    
-    if st.session_state.empresa_seleccionada == "Cablemovil SAS":
-        try:
-            df_p = cargar_excel("empleados_grupos.xlsx") 
-            total_emp = len(df_p) if not df_p.empty else "0"
-        except:
-            total_emp = "0"
-    else:
-        total_emp = "Módulo Dinámico"
-
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("👷 Personal Registrado", total_emp)
-    c2.metric("📂 Modelos Activos", len(st.session_state.config_personal))
-    c3.metric("⚖️ Deuda Global", "0 días")
-    c4.metric("📡 Estado de BD", "Conectado", delta="Estable")
-
-    st.divider()
-    st.subheader("🇨🇴 Contexto Legal Global: Reforma Laboral 2026")
-    st.info("📉 **Reducción de la Jornada Semanal:** Para el año 2026 la jornada ordinaria máxima es de 42 horas semanales.")
-
-
-# --- VARIABLES DE SESIÓN ---
-if 'splash_done' not in st.session_state: st.session_state.splash_done = False
-if 'logged_in' not in st.session_state: st.session_state.logged_in = False
-if 'empresa_seleccionada' not in st.session_state: st.session_state.empresa_seleccionada = None
-
-# --- PANTALLA 1: SPLASH (BIENVENIDA) ---
-if not st.session_state.splash_done:
-    _, splash_center, _ = st.columns([1, 2, 1])
-    with splash_center:
-        st.markdown('<div style="text-align:center; margin-top:10vh;">', unsafe_allow_html=True)
-        _, img_splash, _ = st.columns([1, 1.5, 1])
-        with img_splash: st.image(LOGO_MÓVILGO, use_container_width=True)
-        st.markdown("<h1 style='color:#1E3D59; font-size: 3.5rem; font-weight: 900; margin-top: 20px;'>Optimizer Pro 2026</h1>", unsafe_allow_html=True)
-        st.markdown("<p style='font-size: 1.3rem; color: #666; margin-bottom: 40px;'>Hub Operativo Corporativo</p>", unsafe_allow_html=True)
-        
-        if st.button("INGRESAR AL PORTAL", use_container_width=True):
-            st.session_state.splash_done = True
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
-
-# --- PANTALLA 2: LOGIN ---
-elif not st.session_state.logged_in:
-    _, login_center, _ = st.columns([1.5, 2, 1.5])
-    with login_center:
-        st.write(""); st.write(""); st.write(""); st.write("")
-        with st.container():
-            _, img_login, _ = st.columns([1, 1.2, 1])
-            with img_login: st.image(LOGO_MÓVILGO, use_container_width=True)
-            st.markdown("<h2 class='login-title'>Acceso Seguro</h2>", unsafe_allow_html=True)
-            st.markdown("<p style='text-align:center; color:#666; margin-bottom: 25px;'>Ingresa tus credenciales administrativas</p>", unsafe_allow_html=True)
-            
-            u = st.text_input("👤 Nombre de Usuario", placeholder="Ej: admin")
-            p = st.text_input("🔒 Contraseña", type="password", placeholder="••••••••")
-            
-            st.write("")
-            if st.button("🚀 INICIAR SESIÓN", use_container_width=True):
-                if u == "admin" and p == "movilgo2026":
-                    st.session_state.logged_in = True
-                    st.rerun()
+    if archivo_personal is not None:
+        if st.button("🔄 Importar y Guardar Plantilla", key="btn_imp_pers_grn"):
+            try:
+                df_cargado = pd.read_excel(archivo_personal)
+                cols_esperadas = ["Cedula", "Nombre", "Cargo"]
+                cols_missing = [c for c in cols_esperadas if c not in df_cargado.columns]
+                
+                if cols_missing:
+                    st.error(f"❌ Faltan las siguientes columnas en el Excel: {', '.join(cols_missing)}")
                 else:
-                    st.error("❌ Credenciales incorrectas. Por favor, intenta de nuevo.")
+                    df_cargado["Cedula"] = df_cargado["Cedula"].fillna(0).astype(int).astype(str)
+                    if "Grupo" not in df_cargado.columns: df_cargado["Grupo"] = "Sin Grupo"
+                    else: df_cargado["Grupo"] = df_cargado["Grupo"].fillna("Sin Grupo").astype(str)
+                        
+                    df_limpio = df_cargado[["Cedula", "Nombre", "Cargo", "Grupo"]]
+                    guardar_tabla(df_limpio, "green_personal")
+                    st.success("✅ ¡Personal cargado y guardado en la base de datos con éxito!")
+                    st.rerun()
+            except Exception as e:
+                st.error(f"Error al leer el archivo: {str(e)}")
 
-# --- PANTALLA 3: SELECCIÓN DE EMPRESA ---
-elif st.session_state.empresa_seleccionada is None:
-    st.markdown("<h2 class='login-title' style='margin-top: 5vh; font-size: 3rem;'>🏢 Seleccione el Entorno Operativo</h2>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align:center; color:#666; margin-bottom: 50px; font-size: 1.2rem;'>¿Qué operación desea gestionar hoy?</p>", unsafe_allow_html=True)
-    
-    _, col1, col2, _ = st.columns([1, 2, 2, 1])
-    
-    with col1:
-        st.markdown('<div class="btn-empresa">', unsafe_allow_html=True)
-        if st.button("🟠 Cablemovil SAS", use_container_width=True):
-            st.session_state.empresa_seleccionada = "Cablemovil SAS"
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
+    st.write("---")
+    df_pers = cargar_tabla("green_personal")
+    if df_pers.empty:
+        df_pers = pd.DataFrame({"Cedula": [""], "Nombre": [""], "Cargo": [""], "Grupo": [""]})
         
-    with col2:
-        st.markdown('<div class="btn-empresa">', unsafe_allow_html=True)
-        if st.button("🟢 Greenmovil SAS", use_container_width=True):
-            st.session_state.empresa_seleccionada = "Greenmovil SAS"
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown("### 📝 Editor de Empleados y Grupos")
+    df_edit = st.data_editor(
+        df_pers, num_rows="dynamic", use_container_width=True,
+        column_config={
+            "Cedula": st.column_config.TextColumn("🆔 Cédula", required=True),
+            "Nombre": st.column_config.TextColumn("👤 Nombre Completo", required=True),
+            "Cargo": st.column_config.TextColumn("💼 Cargo", required=True),
+            "Grupo": st.column_config.TextColumn("📦 Grupo de Trabajo", required=True)
+        }, key="edit_pers_green"
+    )
+    
+    if st.button("💾 Guardar Cambios en Personal", key="btn_guar_pers_grn2"):
+        df_edit = df_edit[df_edit["Nombre"].str.strip() != ""]
+        guardar_tabla(df_edit, "green_personal")
+        st.success(f"✅ ¡{len(df_edit)} empleados registrados exitosamente!")
 
-# --- PANTALLA 4: INTERIOR DE LA APLICACIÓN (SEGÚN EMPRESA) ---
-else:
-    with st.sidebar:
-        st.write("")
-        st.image(LOGO_MÓVILGO, use_container_width=True)
-        st.markdown(f"<h4 style='text-align:center;'>{st.session_state.empresa_seleccionada}</h4>", unsafe_allow_html=True)
-        st.divider()
-        
-        # --- MENÚ DINÁMICO SEGÚN LA EMPRESA ---
-        if st.session_state.empresa_seleccionada == "Cablemovil SAS":
-            opciones_menu = ["🏠 Inicio", "👥 Personal", "🔧 Prog. Técnicos", "🚀 Prog. Abordaje"]
-        elif st.session_state.empresa_seleccionada == "Greenmovil SAS":
-            opciones_menu = ["🏠 Inicio", "👥 Personal", "⚙️ Parametrizador", "📅 Mallas Operaciones"]
-        else:
-            opciones_menu = ["🏠 Inicio"]
-            
-        menu = st.radio("Navegación del Sistema", opciones_menu)
-        
-        st.divider()
-        if st.button("🔄 Cambiar de Empresa"):
-            st.session_state.empresa_seleccionada = None
-            st.rerun()
-            
-        if st.button("🚪 Cerrar Sesión"):
-            st.session_state.logged_in = False
-            st.session_state.splash_done = False
-            st.session_state.empresa_seleccionada = None
-            st.rerun()
 
-    # --- RUTEO DE LÓGICA SEGÚN EMPRESA Y MENÚ ---
+# =========================================================
+# 3. PARAMETRIZADOR (TURNOS, REGLAS Y NOVEDADES)
+# =========================================================
+def pantalla_parametrizador_green():
+    st.markdown("## ⚙️ Parametrizador Operativo (Greenmovil)")
+    st.info("Aquí defines los catálogos base que el motor de mallas utilizará para rotar a tu personal y controlar la cobertura.")
     
-    if menu == "🏠 Inicio": 
-        modulo_inicio()
+    t_turnos, t_novedades = st.tabs(["🕒 Catálogo de Turnos", "🌴 Gestor de Novedades (Ausentismos)"])
+    
+    with t_turnos:
+        st.markdown("### 🕒 Configuración de Turnos y Requeridos")
+        st.caption("Vincula cada turno al Cargo correspondiente y define la meta de cobertura diaria.")
         
-    # --- CABLEMOVIL SAS ---
-    elif st.session_state.empresa_seleccionada == "Cablemovil SAS":
-        if menu == "👥 Personal": pantalla_personal()
-        elif menu == "🔧 Prog. Técnicos": pantalla_programador()
-        elif menu == "🚀 Prog. Abordaje": pantalla_abordaje()
+        df_turnos = cargar_tabla("green_turnos")
+        if df_turnos.empty:
+            df_turnos = pd.DataFrame({
+                "Nombre": ["Mañana Control", "Tarde Auxiliar", "Oficina Inspector"], 
+                "Inicio": ["06:00", "14:00", "08:00"], 
+                "Fin": ["13:00", "21:00", "16:00"],
+                "Cargo Aplicable": ["Técnicos de Control", "Auxiliares de Ejecución de la operación", "Inspectores de Seguridad Operacional"],
+                "Requeridos": [2, 4, 1]
+            })
             
-    # --- GREENMOVIL SAS ---
-    elif st.session_state.empresa_seleccionada == "Greenmovil SAS":
-        if menu == "👥 Personal": pantalla_personal_green()
-        elif menu == "⚙️ Parametrizador": pantalla_parametrizador_green()
-        elif menu == "📅 Mallas Operaciones": pantalla_mallas_green()
+        df_edit_t = st.data_editor(
+            df_turnos, num_rows="dynamic", use_container_width=True,
+            column_config={
+                "Nombre": st.column_config.TextColumn("Etiqueta del Turno", required=True),
+                "Inicio": st.column_config.TextColumn("Hora Inicio (HH:MM)", required=True),
+                "Fin": st.column_config.TextColumn("Hora Fin (HH:MM)", required=True),
+                "Cargo Aplicable": st.column_config.TextColumn("Aplica para (Escribe el Cargo)", required=True),
+                "Requeridos": st.column_config.NumberColumn("Meta Cobertura", min_value=1, default=1, required=True)
+            }, key="edit_turnos_green"
+        )
+        if st.button("💾 Guardar Catálogo de Turnos", key="btn_guar_t_green"):
+            guardar_tabla(df_edit_t, "green_turnos")
+            st.success("✅ Turnos y requerimientos guardados correctamente.")
+
+    with t_novedades:
+        st.markdown("### 🌴 Registro de Novedades")
+        st.caption("Registra vacaciones, licencias o incapacidades. El sistema bloqueará los turnos en estas fechas y alertará sobre la falta de cobertura.")
+        
+        df_pers_nov = cargar_tabla("green_personal")
+        nombres_lista = df_pers_nov["Nombre"].tolist() if not df_pers_nov.empty else ["No hay personal"]
+        
+        df_nov = cargar_tabla("green_novedades")
+        if df_nov.empty:
+            df_nov = pd.DataFrame({"Nombre": [""], "Tipo Novedad": [""], "Inicio": [date.today().strftime('%Y-%m-%d')], "Fin": [date.today().strftime('%Y-%m-%d')]})
+            
+        df_edit_n = st.data_editor(
+            df_nov, num_rows="dynamic", use_container_width=True,
+            column_config={
+                "Nombre": st.column_config.SelectboxColumn("👤 Empleado", options=nombres_lista, required=True),
+                "Tipo Novedad": st.column_config.SelectboxColumn("⚠️ Tipo de Novedad", options=["Vacaciones", "Incapacidad", "Licencia", "Permiso"], required=True),
+                "Inicio": st.column_config.DateColumn("📅 Fecha Inicio", format="YYYY-MM-DD", required=True),
+                "Fin": st.column_config.DateColumn("📅 Fecha Fin", format="YYYY-MM-DD", required=True)
+            }, key="edit_nov_green"
+        )
+        if st.button("💾 Guardar Novedades", key="btn_guar_nov_green"):
+            df_edit_n = df_edit_n[df_edit_n["Nombre"].str.strip() != ""]
+            guardar_tabla(df_edit_n, "green_novedades")
+            st.success("✅ Novedades registradas exitosamente.")
+
+# =========================================================
+# 4. MOTOR DE ASIGNACIÓN DINÁMICA (CON NOVEDADES)
+# =========================================================
+def calcular_horas_y_recargos(ini_str, fin_str):
+    if ini_str == "OFF" or fin_str == "OFF": return 0.0, 0.0, 0.0
+    try:
+        t_ini, t_fin = datetime.strptime(ini_str, "%H:%M"), datetime.strptime(fin_str, "%H:%M")
+    except: return 0.0, 0.0, 0.0
+    
+    min_ini = t_ini.hour * 60 + t_ini.minute
+    min_fin = t_fin.hour * 60 + t_fin.minute
+    minutos_totales = (min_fin - min_ini) if min_fin >= min_ini else ((1440 - min_ini) + min_fin)
+    total_horas = minutos_totales / 60.0
+    
+    horas_extras = max(0.0, total_horas - 7.0)
+    
+    minutos_nocturnos = 0
+    m_actual = min_ini
+    for _ in range(int(minutos_totales)):
+        min_ciclo = m_actual % 1440
+        if min_ciclo >= 1140 or min_ciclo < 360: minutos_nocturnos += 1
+        m_actual += 1
+        
+    return round(total_horas, 2), round(horas_extras, 2), round(minutos_nocturnos / 60.0, 2)
+
+def evaluar_fatiga(turno_ayer_fin, turno_hoy_ini):
+    if turno_ayer_fin == "OFF" or turno_hoy_ini == "OFF": return True
+    t_fin, t_ini = datetime.strptime(turno_ayer_fin, "%H:%M"), datetime.strptime(turno_hoy_ini, "%H:%M")
+    m_fin = t_fin.hour * 60 + t_fin.minute
+    m_ini = t_ini.hour * 60 + t_ini.minute
+    descanso = (1440 - m_fin) + m_ini
+    return descanso >= 480
+
+def generar_malla_dinamica(inicio, fin, df_personal, df_turnos, d_descansos, df_novedades):
+    filas = []
+    df_turnos = df_turnos.copy()
+    df_turnos['min_ini'] = df_turnos['Inicio'].apply(lambda x: datetime.strptime(x, "%H:%M").hour * 60 if x != "OFF" else 0)
+    
+    historia_fase = {row["Grupo"]: 0 for _, row in df_personal.drop_duplicates("Grupo").iterrows()}
+    ayer_fin = {row["Grupo"]: "OFF" for _, row in df_personal.iterrows()}
+    dias_semana = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"]
+    
+    for fecha in pd.date_range(inicio, fin):
+        dia_n = dias_semana[fecha.weekday()]
+        fecha_str = fecha.strftime('%Y-%m-%d')
+        
+        for _, p in df_personal.iterrows():
+            cedula, nombre, grupo, cargo = p.get("Cedula", "N/A"), p["Nombre"], p["Grupo"], p["Cargo"]
+            turno_hoy, ini_hoy, fin_hoy = "DESCANSO", "OFF", "OFF"
+            
+            # --- EVALUACIÓN DE NOVEDADES ---
+            novedad_activa = None
+            if not df_novedades.empty:
+                for _, nov in df_novedades[df_novedades["Nombre"] == nombre].iterrows():
+                    try:
+                        dt_ini = pd.to_datetime(nov["Inicio"])
+                        dt_fin = pd.to_datetime(nov["Fin"])
+                        if dt_ini <= fecha <= dt_fin:
+                            novedad_activa = f"⚠️ {nov['Tipo Novedad']}"
+                            break
+                    except: pass
+
+            turnos_validos_cargo = df_turnos[
+                (df_turnos["Cargo Aplicable"].str.contains(str(cargo), case=False, na=False)) | 
+                (df_turnos["Cargo Aplicable"].str.strip().str.upper() == "TODOS")
+            ].sort_values('min_ini')
+            lista_nombres_turnos = turnos_validos_cargo['Nombre'].tolist()
+            
+            # --- LÓGICA DE ASIGNACIÓN ---
+            if novedad_activa:
+                turno_hoy = novedad_activa
+            elif d_descansos.get(grupo) == dia_n:
+                turno_hoy = "DESCANSO"
+                if len(lista_nombres_turnos) > 0: historia_fase[grupo] = (historia_fase[grupo] + 1) % len(lista_nombres_turnos)
+            else:
+                if len(lista_nombres_turnos) > 0:
+                    idx_fase = historia_fase[grupo] % len(lista_nombres_turnos)
+                    turno_propuesto = lista_nombres_turnos[idx_fase]
+                    datos_t = turnos_validos_cargo.iloc[idx_fase]
+                    ini_prop = datos_t["Inicio"]
+                    
+                    if evaluar_fatiga(ayer_fin[grupo], ini_prop):
+                        turno_hoy, ini_hoy, fin_hoy = turno_propuesto, ini_prop, datos_t["Fin"]
+                    else:
+                        turno_hoy, ini_hoy, fin_hoy = "RELEVO FATIGA", "08:00", "15:00"
+                else:
+                    turno_hoy = "SIN TURNO"
+            
+            # --- EDITOR MANUAL (SOBREESCRIBE CUALQUIER COSA) ---
+            if "ajustes_manuales_grn" in st.session_state and (nombre, fecha_str) in st.session_state.ajustes_manuales_grn:
+                turno_manual = st.session_state.ajustes_manuales_grn[(nombre, fecha_str)]
+                turno_hoy = turno_manual
+                if turno_manual not in ["DESCANSO", "RELEVO FATIGA", "SIN TURNO"] and not turno_manual.startswith("⚠️"):
+                    datos_t = df_turnos[df_turnos["Nombre"] == turno_manual].iloc[0]
+                    ini_hoy, fin_hoy = datos_t["Inicio"], datos_t["Fin"]
+                else:
+                    ini_hoy, fin_hoy = "OFF", "OFF"
+            
+            h_tot, h_ext, h_noc = calcular_horas_y_recargos(ini_hoy, fin_hoy)
+            ayer_fin[grupo] = fin_hoy
+            
+            filas.append({
+                "Fecha": fecha.strftime('%Y-%m-%d'), "Cedula": cedula, "Nombre": nombre, "Grupo": grupo, "Cargo": cargo,
+                "Turno": turno_hoy, "Inicio": ini_hoy, "Fin": fin_hoy,
+                "Hrs Prog": h_tot, "Hrs Extras": h_ext, "Recargos Noct": h_noc
+            })
+    return pd.DataFrame(filas)
+
+def style_malla_green(df_pivot):
+    styles = pd.DataFrame('', index=df_pivot.index, columns=df_pivot.columns)
+    for col in df_pivot.columns:
+        for idx in df_pivot.index:
+            val = str(df_pivot.at[idx, col]).strip()
+            if val == "DESCANSO": bg, txt = "#1B2631", "white"
+            elif "⚠️" in val: bg, txt = "#E67E22", "white" # Naranja para Novedades
+            elif val == "RELEVO FATIGA": bg, txt = "#E74C3C", "white" # Rojo
+            elif val == "SIN TURNO": bg, txt = "#F39C12", "white"
+            else: bg, txt = "#D6EAF8", "#17202A" # Color base azul
+            
+            styles.at[idx, col] = f'background-color: {bg}; color: {txt}; font-weight: 700; border: 0.5px solid #D5DBDB;'
+    return df_pivot.style.apply(lambda _: styles, axis=None)
+
+# --- POP-UP GESTOR MANUAL ---
+@st.dialog("🛠️ Forzar Cobertura / Turno (Greenmovil)", width="small")
+def popup_forzar_ajuste_fecha_grn(fecha_solicitada, opciones_sujetos, opciones_turnos):
+    st.markdown(f"📅 **Fecha:** `{fecha_solicitada}`")
+    sujeto_sel = st.selectbox("🎯 Empleado a reasignar:", opciones_sujetos, key="sel_suj_grn_pu")
+    
+    opciones_totales = ["DESCANSO", "RELEVO FATIGA"] + opciones_turnos
+    nuevo_turno = st.selectbox("🆕 Turno o Cobertura:", opciones_totales, index=0, key="sel_tur_grn_pu")
+    
+    if st.button("💾 Guardar y Re-calcular Malla", key="btn_guar_grn_pu"):
+        st.session_state.ajustes_manuales_grn[(sujeto_sel, fecha_solicitada)] = nuevo_turno
+        st.success("¡Asignación guardada!")
+        st.rerun()
+
+# =========================================================
+# 5. PANEL DE MALLAS Y AUDITORÍA
+# =========================================================
+def pantalla_mallas_green():
+    if "ajustes_manuales_grn" not in st.session_state: st.session_state.ajustes_manuales_grn = {}
+    
+    st.markdown("## 📅 Mallas de Operaciones (Greenmovil)")
+    st.info("Generación de turnos adaptativa con validación automática de ausentismos y coberturas.")
+    
+    df_pers = cargar_tabla("green_personal")
+    df_turnos = cargar_tabla("green_turnos")
+    df_nov = cargar_tabla("green_novedades")
+    
+    if df_pers.empty or df_turnos.empty:
+        st.warning("⚠️ Asegúrate de registrar personal y configurar turnos en el Parametrizador antes de generar la malla.")
+        return
+        
+    grupos_unicos = df_pers["Grupo"].unique()
+    
+    st.markdown("### ⚙️ Configuración de Generación")
+    c1, c2 = st.columns(2)
+    inicio = c1.date_input("Inicio", date(2026, 7, 1), key="i_grn_m")
+    fin = c2.date_input("Fin", date(2026, 12, 31), key="f_grn_m")
+    
+    st.markdown("**Asignar Día de Descanso por Grupo:**")
+    cols = st.columns(min(len(grupos_unicos), 6) if len(grupos_unicos) > 0 else 1)
+    d_desc = {}
+    dias_semana = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"]
+    for i, g in enumerate(grupos_unicos):
+        d_desc[g] = cols[i % 6].selectbox(f"Descanso {g}", dias_semana, index=i % 7, key=f"d_grn_m_{g}")
+        
+    if st.button("🚀 GENERAR MALLA INTELIGENTE", key="btn_gen_grn_m"):
+        st.session_state.m_base_grn = generar_malla_dinamica(inicio, fin, df_pers, df_turnos, d_desc, df_nov)
+        
+    if 'm_base_grn' in st.session_state and not st.session_state.m_base_grn.empty:
+        df_malla = st.session_state.m_base_grn
+        
+        st.write("---")
+        st.subheader("📋 Explorador de Mallas Operativas")
+        
+        cargos_presentes = ["General (Toda la Planta)"] + sorted(list(df_malla["Cargo"].unique()))
+        vista_sel = st.selectbox("👁️ Filtrar Vista de Malla por Cargo:", cargos_presentes)
+        
+        if vista_sel == "General (Toda la Planta)": df_vista = df_malla
+        else: df_vista = df_malla[df_malla["Cargo"] == vista_sel]
+            
+        pivot = df_vista.pivot(index=["Cargo", "Grupo", "Cedula", "Nombre"], columns="Fecha", values="Turno").fillna("DESCANSO")
+        st.dataframe(style_malla_green(pivot), use_container_width=True)
+        
+        # --- GESTOR DE COBERTURA MANUAL ---
+        st.write("---")
+        st.subheader("🛠️ Gestor de Coberturas Manuales")
+        st.caption("Usa este panel para asignar reemplazos cuando la auditoría muestre faltantes por novedades.")
+        with st.expander("🔍 Forzar cambio o cobertura en Malla", expanded=False):
+            c_f1, c_f2 = st.columns(2)
+            f_libre_sel = c_f1.selectbox("Seleccione la Fecha:", list(pivot.columns), key="f_libre_dropdown_grn")
+            if c_f2.button("⚙️ Abrir Gestor de Turnos", use_container_width=True, key="btn_gestor_grn"):
+                popup_forzar_ajuste_fecha_grn(f_libre_sel, sorted(list(df_malla["Nombre"].unique())), df_turnos["Nombre"].tolist())
+
+        # --- AUDITORÍA DE COBERTURA ---
+        st.write("---")
+        st.subheader("📊 Auditoría de Cobertura vs. Requeridos")
+        
+        # Cruzar turnos asignados vs turnos requeridos
+        auditoria = df_vista.groupby(["Fecha", "Turno"]).size().unstack(fill_value=0)
+        
+        # Si estamos en la vista General, podemos evaluar todos los turnos.
+        if vista_sel == "General (Toda la Planta)":
+            alertas_cobertura = 0
+            for col in auditoria.columns:
+                if col in df_turnos["Nombre"].values:
+                    requerido = df_turnos[df_turnos["Nombre"] == col]["Requeridos"].values[0]
+                    # Identificamos los días que no cumplen
+                    dias_deficit = auditoria[auditoria[col] < requerido].index
+                    if not dias_deficit.empty:
+                        st.warning(f"📉 **Déficit en Turno '{col}':** La meta es {requerido} personas, pero hay falta de personal en {len(dias_deficit)} días (Posibles Novedades).")
+                        alertas_cobertura += 1
+            if alertas_cobertura == 0:
+                st.success("✅ **Cobertura Perfecta:** Todos los turnos cumplen con la meta de personal requerido.")
+
+        auditoria.index = [p for p in auditoria.index]
+        st.dataframe(auditoria, use_container_width=True)
+
+        # --- REPORTE DE NÓMINA ---
+        st.write("---")
+        st.subheader("💰 Resumen de Nómina y Reforma Laboral (7h)")
+        resumen = df_vista.groupby(["Cargo", "Grupo", "Cedula", "Nombre"])[["Hrs Prog", "Hrs Extras", "Recargos Noct"]].sum().reset_index()
+        st.dataframe(resumen, use_container_width=True)
+        
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer: 
+            df_vista.to_excel(writer, sheet_name="Detalle_Operacion", index=False)
+            resumen.to_excel(writer, sheet_name="Nomina_Consolidada", index=False)
+        st.download_button("📥 Descargar Reporte de la Vista Actual (.xlsx)", output.getvalue(), f"Reporte_{vista_sel}_{date.today()}.xlsx", key="dw_grn_m")
