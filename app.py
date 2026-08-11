@@ -217,15 +217,16 @@ def modulo_inicio():
 
 # --- PANTALLA 1: LOGIN (Directo, sin Splash) ---
 if not st.session_state.logged_in:
-    _, login_center, _ = st.columns([1.5, 2, 1.5])
+    _, login_center, _ = st.columns([1.5, 2.5, 1.5]) # Ensanchamos el contenedor principal
     with login_center:
-        st.write(""); st.write(""); st.write("")
+        st.write(""); st.write("")
         with st.container():
-            # Agrandamos la columna central para el logo
-            _, img_login, _ = st.columns([1, 1.8, 1])
-            with img_login: st.image(LOGO_MÓVILGO, use_container_width=True)
+            # Agrandamos agresivamente la columna central para el logo
+            _, img_login, _ = st.columns([1, 4, 1])
+            with img_login: 
+                st.image(LOGO_MÓVILGO, use_container_width=True)
             
-            st.markdown("<h1 class='login-title'>Optimizer Pro 2026</h1>", unsafe_allow_html=True)
+            st.markdown("<h1 class='login-title'>MovilGo</h1>", unsafe_allow_html=True)
             st.markdown("<p class='login-subtitle'>Software para la gestión de turnos</p>", unsafe_allow_html=True)
             
             u = st.text_input("👤 Nombre de Usuario", placeholder="Ej: admin")
