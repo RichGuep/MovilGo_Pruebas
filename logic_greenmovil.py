@@ -5,6 +5,7 @@ import os
 from sqlalchemy import create_engine
 from dotenv import load_dotenv
 import io
+import math
 
 # =========================================================
 # 1. CONEXIÓN Y PERSISTENCIA (GREENMOVIL)
@@ -87,11 +88,11 @@ def pantalla_parametrizador_green():
     st.markdown("## ⚙️ Parametrizador Operativo (Greenmovil)")
     st.info("Aquí defines los catálogos base que el motor de mallas utilizará para rotar a tu personal y controlar la cobertura.")
     
-    t_turnos, t_novedades = st.tabs(["🕒 Catálogo de Turnos", "🌴 Gestor de Novedades (Ausentismos)"])
+    t_turnos, t_novedades, t_diagnostico = st.tabs(["🕒 Catálogo de Turnos", "🌴 Gestor de Novedades", "⚖️ Diagnóstico de Planta"])
     
     with t_turnos:
         st.markdown("### 🕒 Configuración de Turnos y Requeridos")
-        st.caption("Vincula cada turno al Cargo correspondiente y define la meta de cobertura diaria.")
+        st.caption("Vincula cada turno al Cargo correspondiente y define cuántas personas se requieren (Meta Cobertura).")
         
         df_turnos = cargar_tabla("green_turnos")
         if df_turnos.empty:
@@ -110,7 +111,7 @@ def pantalla_parametrizador_green():
                 "Inicio": st.column_config.TextColumn("Hora Inicio (HH:MM)", required=True),
                 "Fin": st.column_config.TextColumn("Hora Fin (HH:MM)", required=True),
                 "Cargo Aplicable": st.column_config.TextColumn("Aplica para (Escribe el Cargo)", required=True),
-                "Requeridos": st.column_config.NumberColumn("Meta Cobertura", min_value=1, default=1, required=True)
+                "Requeridos": st.column_config.NumberColumn("Meta Cobertura (Requeridos)", min_value=1, default=1, required=True)
             }, key="edit_turnos_green"
         )
         if st.button("💾 Guardar Catálogo de Turnos", key="btn_guar_t_green"):
@@ -118,7 +119,7 @@ def pantalla_parametrizador_green():
             st.success("✅ Turnos y requerimientos guardados correctamente.")
 
     with t_novedades:
-        st.markdown("### 🌴 Registro de Novedades")
+        st.markdown("### 🌴 Registro de Novedades (Ausentismos)")
         st.caption("Registra vacaciones, licencias o incapacidades. El sistema bloqueará los turnos en estas fechas y alertará sobre la falta de cobertura.")
         
         df_pers_nov = cargar_tabla("green_personal")
@@ -133,7 +134,6 @@ def pantalla_parametrizador_green():
                 "Fin": [date.today()]
             })
         else:
-            # Corrección de tipo de dato para el editor de Streamlit
             df_nov["Inicio"] = pd.to_datetime(df_nov["Inicio"]).dt.date
             df_nov["Fin"] = pd.to_datetime(df_nov["Fin"]).dt.date
             
@@ -149,11 +149,68 @@ def pantalla_parametrizador_green():
         
         if st.button("💾 Guardar Novedades", key="btn_guar_nov_green"):
             df_edit_n = df_edit_n[df_edit_n["Nombre"].str.strip() != ""]
-            # Convertimos de vuelta a string para guardar en la Base de Datos
             df_edit_n["Inicio"] = df_edit_n["Inicio"].astype(str)
             df_edit_n["Fin"] = df_edit_n["Fin"].astype(str)
             guardar_tabla(df_edit_n, "green_novedades")
             st.success("✅ Novedades registradas exitosamente.")
+
+    with t_diagnostico:
+        st.markdown("### ⚖️ Diagnóstico Matemático de Capacidad Operativa")
+        st.caption("Cruza los requerimientos diarios de tus turnos contra el personal real registrado para detectar déficits operacionales y problemas de cobertura antes de programar.")
+        
+        df_pers_diag = cargar_tabla("green_personal")
+        df_turnos_diag = cargar_tabla("green_turnos")
+        
+        if df_pers_diag.empty or df_turnos_diag.empty:
+            st.info("💡 Registra personal y configura los turnos para ver el diagnóstico matemático de tu planta.")
+        else:
+            diagnostico = []
+            cargos_turnos = df_turnos_diag["Cargo Aplicable"].unique()
+            
+            for cargo in cargos_turnos:
+                # Sumamos la cantidad total de personas requeridas al día para ese cargo
+                req_diario = df_turnos_diag[df_turnos_diag["Cargo Aplicable"] == cargo]["Requeridos"].sum()
+                
+                if str(cargo).strip().upper() == "TODOS":
+                    planta_actual = len(df_pers_diag)
+                else:
+                    planta_actual = len(df_pers_diag[df_pers_diag["Cargo"].str.contains(str(cargo), case=False, na=False)])
+                    
+                # Matemática de Mallas: Para cubrir turnos los 7 días (asumiendo 1 día de descanso a la semana por ley)
+                # se necesita el requerimiento diario multiplicado por 7/6 (~1.16).
+                planta_minima_saludable = math.ceil(req_diario * (7/6))
+                
+                estado = "✅ ÓPTIMO"
+                if planta_actual < req_diario:
+                    estado = "🚨 DÉFICIT CRÍTICO"
+                elif planta_actual < planta_minima_saludable:
+                    estado = "⚠️ DÉFICIT MODERADO"
+                    
+                diagnostico.append({
+                    "Cargo / Rol": cargo,
+                    "Requiere x Día": req_diario,
+                    "Planta Mínima (Con Descansos)": planta_minima_saludable,
+                    "Personal Registrado Real": planta_actual,
+                    "Estado de Cobertura": estado
+                })
+                
+            df_diag = pd.DataFrame(diagnostico)
+            st.dataframe(df_diag, use_container_width=True)
+            
+            # --- Emisión de Alertas ---
+            st.markdown("#### 🔍 Conclusiones del Sistema:")
+            alertas_lanzadas = 0
+            for _, row in df_diag.iterrows():
+                if "CRÍTICO" in row["Estado de Cobertura"]:
+                    st.error(f"🚨 **Alerta Crítica en {row['Cargo / Rol']}:** Tienes solo **{row['Personal Registrado Real']}** empleados en planta, pero los turnos exigen **{row['Requiere x Día']}** al mismo tiempo. Es matemáticamente imposible operar tu catálogo.")
+                    alertas_lanzadas += 1
+                elif "MODERADO" in row["Estado de Cobertura"]:
+                    st.warning(f"⚠️ **Alerta Preventiva en {row['Cargo / Rol']}:** Tienes **{row['Personal Registrado Real']}** empleados para cubrir **{row['Requiere x Día']}** cupos diarios. Alcanza exacto, pero cuando alguien tome su día de descanso semanal o se incapacite, tendrás huecos en la operación. Lo ideal para operar sin deudas es tener **{row['Planta Mínima (Con Descansos)']}** empleados en planta.")
+                    alertas_lanzadas += 1
+                    
+            if alertas_lanzadas == 0:
+                st.success("🎉 **¡Estructura Perfecta!** Tu planta de personal está correctamente dimensionada para cubrir todos los turnos diarios y absorber los descansos de ley sin generar vacíos operativos.")
+
 
 # =========================================================
 # 4. MOTOR DE ASIGNACIÓN DINÁMICA (CON NOVEDADES)
@@ -205,7 +262,6 @@ def generar_malla_dinamica(inicio, fin, df_personal, df_turnos, d_descansos, df_
             cedula, nombre, grupo, cargo = p.get("Cedula", "N/A"), p["Nombre"], p["Grupo"], p["Cargo"]
             turno_hoy, ini_hoy, fin_hoy = "DESCANSO", "OFF", "OFF"
             
-            # --- EVALUACIÓN DE NOVEDADES ---
             novedad_activa = None
             if not df_novedades.empty:
                 for _, nov in df_novedades[df_novedades["Nombre"] == nombre].iterrows():
@@ -223,7 +279,6 @@ def generar_malla_dinamica(inicio, fin, df_personal, df_turnos, d_descansos, df_
             ].sort_values('min_ini')
             lista_nombres_turnos = turnos_validos_cargo['Nombre'].tolist()
             
-            # --- LÓGICA DE ASIGNACIÓN ---
             if novedad_activa:
                 turno_hoy = novedad_activa
             elif d_descansos.get(grupo) == dia_n:
@@ -243,7 +298,6 @@ def generar_malla_dinamica(inicio, fin, df_personal, df_turnos, d_descansos, df_
                 else:
                     turno_hoy = "SIN TURNO"
             
-            # --- EDITOR MANUAL (SOBREESCRIBE CUALQUIER COSA) ---
             if "ajustes_manuales_grn" in st.session_state and (nombre, fecha_str) in st.session_state.ajustes_manuales_grn:
                 turno_manual = st.session_state.ajustes_manuales_grn[(nombre, fecha_str)]
                 turno_hoy = turno_manual
@@ -277,7 +331,6 @@ def style_malla_green(df_pivot):
             styles.at[idx, col] = f'background-color: {bg}; color: {txt}; font-weight: 700; border: 0.5px solid #D5DBDB;'
     return df_pivot.style.apply(lambda _: styles, axis=None)
 
-# --- POP-UP GESTOR MANUAL ---
 @st.dialog("🛠️ Forzar Cobertura / Turno (Greenmovil)", width="small")
 def popup_forzar_ajuste_fecha_grn(fecha_solicitada, opciones_sujetos, opciones_turnos):
     st.markdown(f"📅 **Fecha:** `{fecha_solicitada}`")
@@ -340,7 +393,6 @@ def pantalla_mallas_green():
         pivot = df_vista.pivot(index=["Cargo", "Grupo", "Cedula", "Nombre"], columns="Fecha", values="Turno").fillna("DESCANSO")
         st.dataframe(style_malla_green(pivot), use_container_width=True)
         
-        # --- GESTOR DE COBERTURA MANUAL ---
         st.write("---")
         st.subheader("🛠️ Gestor de Coberturas Manuales")
         st.caption("Usa este panel para asignar reemplazos cuando la auditoría muestre faltantes por novedades.")
@@ -350,7 +402,6 @@ def pantalla_mallas_green():
             if c_f2.button("⚙️ Abrir Gestor de Turnos", use_container_width=True, key="btn_gestor_grn"):
                 popup_forzar_ajuste_fecha_grn(f_libre_sel, sorted(list(df_malla["Nombre"].unique())), df_turnos["Nombre"].tolist())
 
-        # --- AUDITORÍA DE COBERTURA ---
         st.write("---")
         st.subheader("📊 Auditoría de Cobertura vs. Requeridos")
         
@@ -363,7 +414,7 @@ def pantalla_mallas_green():
                     requerido = df_turnos[df_turnos["Nombre"] == col]["Requeridos"].values[0]
                     dias_deficit = auditoria[auditoria[col] < requerido].index
                     if not dias_deficit.empty:
-                        st.warning(f"📉 **Déficit en Turno '{col}':** La meta es {requerido} personas, pero hay falta de personal en {len(dias_deficit)} días (Posibles Novedades).")
+                        st.warning(f"📉 **Déficit en Turno '{col}':** La meta es {requerido} personas, pero hay falta de personal en {len(dias_deficit)} días (Posibles Novedades o Descansos simultáneos).")
                         alertas_cobertura += 1
             if alertas_cobertura == 0:
                 st.success("✅ **Cobertura Perfecta:** Todos los turnos cumplen con la meta de personal requerido.")
@@ -371,7 +422,6 @@ def pantalla_mallas_green():
         auditoria.index = [p for p in auditoria.index]
         st.dataframe(auditoria, use_container_width=True)
 
-        # --- REPORTE DE NÓMINA ---
         st.write("---")
         st.subheader("💰 Resumen de Nómina y Reforma Laboral (7h)")
         resumen = df_vista.groupby(["Cargo", "Grupo", "Cedula", "Nombre"])[["Hrs Prog", "Hrs Extras", "Recargos Noct"]].sum().reset_index()
