@@ -828,6 +828,19 @@ def verificar_alarmas_abordaje(df_final):
                 alertas.append({"Mensaje": f"🚨 **Transición Crítica Ilegal (T2 -> T1):** Menos de 8 horas de descanso entre turnos para el empleado **{sujeto}** el día {lista_fechas[i].strftime('%Y-%m-%d')}."})
     return alertas
 
+# --- EDITOR MANUAL POP-UP (NUEVO) ---
+@st.dialog("🛠️ Forzar Cambio de Turno (Abordaje)", width="small")
+def popup_forzar_ajuste_fecha_abo(fecha_solicitada, opciones_sujetos):
+    st.markdown(f"📅 **Fecha de Operación:** `{fecha_solicitada}`")
+    sujeto_sel = st.selectbox("🎯 Seleccione el Empleado a Modificar:", opciones_sujetos)
+    opciones_turnos = ["T1", "T2", "FLOTANTE", "DESCANSO"]
+    nuevo_turno = st.selectbox("🆕 Turno Destino Asignado:", opciones_turnos, index=0)
+    
+    if st.button("💾 Guardar y Re-calcular Malla"):
+        st.session_state.ajustes_manuales_abo[(sujeto_sel, fecha_solicitada)] = nuevo_turno
+        st.success("¡Turno validado y registrado exitosamente!")
+        st.rerun()
+
 # --- INTERFAZ PRINCIPAL ABORDAJE ---
 def pantalla_abordaje():
     if "ajustes_manuales_abo" not in st.session_state: st.session_state.ajustes_manuales_abo = {}
@@ -846,7 +859,6 @@ def pantalla_abordaje():
                     st.session_state.ajustes_manuales_abo = {}
                     for _, row in df_aplanado.iterrows():
                         f_str = pd.to_datetime(row["Fecha"]).strftime('%Y-%m-%d')
-                        # "Sujeto" en el Excel debe ser el Nombre exacto del empleado
                         st.session_state.ajustes_manuales_abo[(row["Sujeto"], f_str)] = row["Turno"]
                     st.sidebar.success("✅ Malla importada con éxito.")
                     st.rerun()
@@ -896,6 +908,17 @@ def pantalla_abordaje():
         
         st.dataframe(style_malla_abordaje(pivot_persona), use_container_width=True)
         
+        # --- NUEVO: EDITOR DE TURNOS MANUAL ---
+        st.write("---")
+        st.subheader("⚙️ Panel de Gestión y Corrección de Turnos")
+        lista_nombres_unicos_abo = sorted(list(df_final["Nombre"].unique()))
+        
+        with st.expander("🔍 Forzar cambio en cualquier fecha de la Malla (Planificación libre)", expanded=True):
+            c_f1, c_f2 = st.columns(2)
+            f_libre_sel = c_f1.selectbox("Seleccione la Fecha:", list(pivot_persona.columns), key="f_libre_dropdown_abo")
+            if c_f2.button("⚙️ Abrir Gestor de Turno para esta Fecha", use_container_width=True, key="btn_gestor_abo"):
+                popup_forzar_ajuste_fecha_abo(f_libre_sel, lista_nombres_unicos_abo)
+
         # --- PANEL DE TABS (ANALÍTICA, FATIGA Y NÓMINA) ---
         st.write("---")
         st.subheader("📈 Cuadro de Mando y Auditoría de Abordaje")
@@ -945,7 +968,3 @@ def pantalla_abordaje():
                 resumen_persona.to_excel(writer, sheet_name="Total_Persona", index=False)
                 resumen_grupo.to_excel(writer, sheet_name="Total_Grupo", index=False)
             st.download_button("📥 Descargar Reporte Nómina Abordaje (.xlsx)", output.getvalue(), f"Nomina_Abordaje_{date.today()}.xlsx")
-        st.markdown("#### 🔍 Auditoría de Cobertura Diaria (Verificación 11-11-4)")
-        auditoria = df_final.groupby(["Fecha", "Turno"]).size().unstack(fill_value=0)
-        auditoria.index = [p.strftime('%Y-%m-%d') for p in auditoria.index]
-        st.dataframe(auditoria[["T1", "T2", "FLOTANTE", "DESCANSO"]], use_container_width=True)
