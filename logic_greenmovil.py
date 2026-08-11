@@ -33,10 +33,10 @@ def guardar_tabla(df, nombre_tabla):
 # =========================================================
 def pantalla_personal_green():
     st.markdown("## 👥 Personal de Operaciones (Greenmovil)")
-    st.info("💡 **Configuración Dinámica:** Registra a tu equipo. El 'Grupo de Trabajo' es clave porque determinará cómo rotan.")
+    st.info("💡 **NUEVO:** Ahora puedes asignar el personal a zonas operativas específicas (Ej. ZMO III, ZMO V).")
     
     st.markdown("### 📥 Carga Masiva desde Excel")
-    st.caption("Asegúrate de que tu archivo tenga en la primera fila las columnas: **Cedula**, **Nombre** y **Cargo**.")
+    st.caption("Asegúrate de que tu archivo tenga en la primera fila: **Cedula**, **Nombre**, **Cargo** y **Zona**.")
     archivo_personal = st.file_uploader("Sube tu plantilla de personal (.xlsx o .xls):", type=["xlsx", "xls"], key="up_pers_grn")
     
     if archivo_personal is not None:
@@ -50,10 +50,13 @@ def pantalla_personal_green():
                     st.error(f"❌ Faltan las siguientes columnas en el Excel: {', '.join(cols_missing)}")
                 else:
                     df_cargado["Cedula"] = df_cargado["Cedula"].fillna(0).astype(int).astype(str)
+                    if "Zona" not in df_cargado.columns: df_cargado["Zona"] = "General"
+                    else: df_cargado["Zona"] = df_cargado["Zona"].fillna("General").astype(str)
+                    
                     if "Grupo" not in df_cargado.columns: df_cargado["Grupo"] = "Sin Grupo"
                     else: df_cargado["Grupo"] = df_cargado["Grupo"].fillna("Sin Grupo").astype(str)
                         
-                    df_limpio = df_cargado[["Cedula", "Nombre", "Cargo", "Grupo"]]
+                    df_limpio = df_cargado[["Cedula", "Nombre", "Cargo", "Zona", "Grupo"]]
                     guardar_tabla(df_limpio, "green_personal")
                     st.success("✅ ¡Personal cargado y guardado en la base de datos con éxito!")
                     st.rerun()
@@ -62,8 +65,11 @@ def pantalla_personal_green():
 
     st.write("---")
     df_pers = cargar_tabla("green_personal")
+    # Parche por si la tabla vieja no tiene Zona
+    if not df_pers.empty and "Zona" not in df_pers.columns: df_pers.insert(3, "Zona", "General")
+        
     if df_pers.empty:
-        df_pers = pd.DataFrame({"Cedula": [""], "Nombre": [""], "Cargo": [""], "Grupo": [""]})
+        df_pers = pd.DataFrame({"Cedula": [""], "Nombre": [""], "Cargo": [""], "Zona": ["ZMO III"], "Grupo": [""]})
         
     st.markdown("### 📝 Editor de Empleados y Grupos")
     df_edit = st.data_editor(
@@ -71,8 +77,9 @@ def pantalla_personal_green():
         column_config={
             "Cedula": st.column_config.TextColumn("🆔 Cédula", required=True),
             "Nombre": st.column_config.TextColumn("👤 Nombre Completo", required=True),
-            "Cargo": st.column_config.TextColumn("💼 Cargo", required=True),
-            "Grupo": st.column_config.TextColumn("📦 Grupo de Trabajo", required=True)
+            "Cargo": st.column_config.TextColumn("💼 Cargo (Ej. Técnico de Patio)", required=True),
+            "Zona": st.column_config.TextColumn("📍 Zona Operativa (Ej. ZMO III)", required=True),
+            "Grupo": st.column_config.TextColumn("📦 Grupo de Rotación", required=True)
         }, key="edit_pers_green"
     )
     
@@ -86,31 +93,30 @@ def pantalla_personal_green():
 # =========================================================
 def pantalla_parametrizador_green():
     st.markdown("## ⚙️ Parametrizador Operativo (Greenmovil)")
-    st.info("Configura los turnos, cómo rotan tus grupos, y controla los requerimientos de personal.")
+    st.info("Configura la matriz de Zonas, Roles, Turnos y Requerimientos operativos.")
     
     t_turnos, t_rotaciones, t_novedades, t_diagnostico = st.tabs([
-        "🕒 Turnos y Requeridos", 
+        "🕒 Matriz de Turnos y Zonas", 
         "🔄 Secuencias de Rotación", 
-        "🌴 Novedades", 
-        "⚖️ Diagnóstico"
+        "🌴 Gestor de Novedades", 
+        "⚖️ Diagnóstico por Zona"
     ])
     
-    # --- PESTAÑA 1: TURNOS ---
     with t_turnos:
-        st.markdown("### 🕒 Configuración de Turnos")
-        st.caption("Crea los turnos y define cuántas personas requieres diariamente en cada uno.")
+        st.markdown("### 🕒 Configuración de Turnos y Cobertura")
         
         df_turnos = cargar_tabla("green_turnos")
-        if not df_turnos.empty and "Requeridos" not in df_turnos.columns:
-            df_turnos["Requeridos"] = 1
+        if not df_turnos.empty and "Requeridos" not in df_turnos.columns: df_turnos["Requeridos"] = 1
+        if not df_turnos.empty and "Zona" not in df_turnos.columns: df_turnos.insert(4, "Zona", "General")
             
         if df_turnos.empty:
             df_turnos = pd.DataFrame({
-                "Nombre": ["TC1", "TC2", "TC3"], 
-                "Inicio": ["06:00", "14:00", "22:00"], 
-                "Fin": ["14:00", "22:00", "06:00"],
-                "Cargo Aplicable": ["Técnicos de Control", "Técnicos de Control", "Técnicos de Control"],
-                "Requeridos": [2, 2, 2]
+                "Nombre": ["TC1 - Control", "TC1 - Patio"], 
+                "Inicio": ["06:00", "06:00"], 
+                "Fin": ["14:00", "14:00"],
+                "Cargo Aplicable": ["Técnicos de Control", "Técnicos de Patio"],
+                "Zona": ["ZMO III", "ZMO III"],
+                "Requeridos": [1, 1]
             })
             
         df_edit_t = st.data_editor(
@@ -120,18 +126,16 @@ def pantalla_parametrizador_green():
                 "Inicio": st.column_config.TextColumn("Hora Inicio (HH:MM)", required=True),
                 "Fin": st.column_config.TextColumn("Hora Fin (HH:MM)", required=True),
                 "Cargo Aplicable": st.column_config.TextColumn("Aplica para (Cargo)", required=True),
-                "Requeridos": st.column_config.NumberColumn("Meta Cobertura (Requeridos)", min_value=1, default=1, required=True)
+                "Zona": st.column_config.TextColumn("📍 Zona Operativa", required=True),
+                "Requeridos": st.column_config.NumberColumn("Meta Cobertura (Req/Día)", min_value=1, default=1, required=True)
             }, key="edit_turnos_green"
         )
         if st.button("💾 Guardar Catálogo de Turnos", key="btn_guar_t_green"):
             guardar_tabla(df_edit_t, "green_turnos")
-            st.success("✅ Turnos y requerimientos guardados correctamente.")
+            st.success("✅ Turnos, zonas y requerimientos guardados correctamente.")
 
-    # --- PESTAÑA 2: ROTACIONES Y PATRONES ---
     with t_rotaciones:
         st.markdown("### 🔄 Patrones de Rotación por Grupo")
-        st.caption("Escribe los turnos separados por coma. Ejemplo: **TC3, TC2, TC1, DESCANSO**.")
-        
         df_pers_rot = cargar_tabla("green_personal")
         grupos_existentes = df_pers_rot["Grupo"].unique() if not df_pers_rot.empty else []
         
@@ -140,13 +144,9 @@ def pantalla_parametrizador_green():
         for g in grupos_existentes:
             match = df_rot[df_rot["Grupo"] == g] if not df_rot.empty else pd.DataFrame()
             if not match.empty:
-                rot_data.append({
-                    "Grupo": g,
-                    "Patrón de Rotación": match.iloc[0]["Patrón de Rotación"],
-                    "Fase Inicio (Día)": match.iloc[0]["Fase Inicio (Día)"]
-                })
+                rot_data.append({"Grupo": g, "Patrón de Rotación": match.iloc[0]["Patrón de Rotación"], "Fase Inicio (Día)": match.iloc[0]["Fase Inicio (Día)"]})
             else:
-                rot_data.append({"Grupo": g, "Patrón de Rotación": "TC3, TC2, TC1, DESCANSO", "Fase Inicio (Día)": 1})
+                rot_data.append({"Grupo": g, "Patrón de Rotación": "TC3 - Control, TC2 - Control, TC1 - Control, DESCANSO", "Fase Inicio (Día)": 1})
                 
         if not rot_data:
             st.warning("No hay grupos registrados. Ve a la pestaña 'Personal' primero.")
@@ -156,29 +156,22 @@ def pantalla_parametrizador_green():
                 df_rot_show, use_container_width=True, hide_index=True,
                 column_config={
                     "Grupo": st.column_config.TextColumn("Grupo de Trabajo", disabled=True),
-                    "Patrón de Rotación": st.column_config.TextColumn("Secuencia (Separada por comas)", required=True),
-                    "Fase Inicio (Día)": st.column_config.NumberColumn("Día de arranque (Ej: 1, 2, 3...)", min_value=1, required=True)
+                    "Patrón de Rotación": st.column_config.TextColumn("Secuencia (Turnos separados por comas)", required=True),
+                    "Fase Inicio (Día)": st.column_config.NumberColumn("Día de arranque (Fase)", min_value=1, required=True)
                 }, key="edit_rot_green"
             )
             if st.button("💾 Guardar Patrones de Rotación", key="btn_guar_rot_green"):
                 guardar_tabla(df_edit_rot, "green_rotaciones")
                 st.success("✅ Secuencias de rotación guardadas exitosamente.")
 
-    # --- PESTAÑA 3: NOVEDADES ---
     with t_novedades:
         st.markdown("### 🌴 Registro de Novedades (Ausentismos)")
-        st.caption("Registra vacaciones, licencias o incapacidades.")
-        
         df_pers_nov = cargar_tabla("green_personal")
         nombres_lista = df_pers_nov["Nombre"].tolist() if not df_pers_nov.empty else ["No hay personal"]
         
         df_nov = cargar_tabla("green_novedades")
         if df_nov.empty:
-            df_nov = pd.DataFrame({
-                "Nombre": [nombres_lista[0] if nombres_lista else ""], 
-                "Tipo Novedad": ["Vacaciones"], 
-                "Inicio": [date.today()], "Fin": [date.today()]
-            })
+            df_nov = pd.DataFrame({"Nombre": [nombres_lista[0] if nombres_lista else ""], "Tipo Novedad": ["Vacaciones"], "Inicio": [date.today()], "Fin": [date.today()]})
         else:
             df_nov["Inicio"] = pd.to_datetime(df_nov["Inicio"]).dt.date
             df_nov["Fin"] = pd.to_datetime(df_nov["Fin"]).dt.date
@@ -199,48 +192,42 @@ def pantalla_parametrizador_green():
             guardar_tabla(df_edit_n, "green_novedades")
             st.success("✅ Novedades registradas exitosamente.")
 
-    # --- PESTAÑA 4: DIAGNÓSTICO ---
     with t_diagnostico:
-        st.markdown("### ⚖️ Diagnóstico Matemático de Capacidad Operativa")
+        st.markdown("### ⚖️ Diagnóstico de Capacidad por Zona y Cargo")
         df_pers_diag = cargar_tabla("green_personal")
         df_turnos_diag = cargar_tabla("green_turnos")
         
+        if not df_turnos_diag.empty and "Zona" not in df_turnos_diag.columns: df_turnos_diag.insert(4, "Zona", "General")
         if not df_turnos_diag.empty and "Requeridos" not in df_turnos_diag.columns: df_turnos_diag["Requeridos"] = 1
         
         if df_pers_diag.empty or df_turnos_diag.empty:
-            st.info("💡 Registra personal y configura los turnos para ver el diagnóstico matemático de tu planta.")
+            st.info("💡 Registra personal y configura los turnos para ver el diagnóstico.")
         else:
             diagnostico = []
-            for cargo in df_turnos_diag["Cargo Aplicable"].unique():
-                req_diario = df_turnos_diag[df_turnos_diag["Cargo Aplicable"] == cargo]["Requeridos"].sum()
-                if str(cargo).strip().upper() == "TODOS": planta_actual = len(df_pers_diag)
-                else: planta_actual = len(df_pers_diag[df_pers_diag["Cargo"].str.contains(str(cargo), case=False, na=False)])
-                    
-                planta_minima_saludable = math.ceil(req_diario * (7/6))
-                estado = "✅ ÓPTIMO"
-                if planta_actual < req_diario: estado = "🚨 DÉFICIT CRÍTICO"
-                elif planta_actual < planta_minima_saludable: estado = "⚠️ DÉFICIT MODERADO"
-                    
-                diagnostico.append({
-                    "Cargo / Rol": cargo, "Requiere x Día": req_diario,
-                    "Planta Mínima (Con Descansos)": planta_minima_saludable,
-                    "Personal Registrado Real": planta_actual, "Estado de Cobertura": estado
-                })
+            for zona in df_turnos_diag["Zona"].unique():
+                turnos_zona = df_turnos_diag[df_turnos_diag["Zona"] == zona]
                 
+                for cargo in turnos_zona["Cargo Aplicable"].unique():
+                    req_diario = turnos_zona[turnos_zona["Cargo Aplicable"] == cargo]["Requeridos"].sum()
+                    
+                    if str(cargo).strip().upper() == "TODOS":
+                        planta_actual = len(df_pers_diag[df_pers_diag["Zona"] == zona])
+                    else:
+                        planta_actual = len(df_pers_diag[(df_pers_diag["Cargo"].str.contains(str(cargo), case=False, na=False)) & (df_pers_diag["Zona"] == zona)])
+                        
+                    planta_minima_saludable = math.ceil(req_diario * (7/6))
+                    estado = "✅ ÓPTIMO"
+                    if planta_actual < req_diario: estado = "🚨 DÉFICIT CRÍTICO"
+                    elif planta_actual < planta_minima_saludable: estado = "⚠️ DÉFICIT MODERADO"
+                        
+                    diagnostico.append({
+                        "📍 Zona": zona, "💼 Cargo / Rol": cargo, "Requiere x Día": req_diario,
+                        "Planta Mínima (Con Descansos)": planta_minima_saludable,
+                        "Personal Real": planta_actual, "Estado": estado
+                    })
+                    
             df_diag = pd.DataFrame(diagnostico)
             st.dataframe(df_diag, use_container_width=True)
-            
-            alertas_lanzadas = 0
-            for _, row in df_diag.iterrows():
-                if "CRÍTICO" in row["Estado de Cobertura"]:
-                    st.error(f"🚨 **Crítico en {row['Cargo / Rol']}:** Tienes **{row['Personal Registrado Real']}** empleados, exiges **{row['Requiere x Día']}**. Operación imposible.")
-                    alertas_lanzadas += 1
-                elif "MODERADO" in row["Estado de Cobertura"]:
-                    st.warning(f"⚠️ **Preventiva en {row['Cargo / Rol']}:** Tienes **{row['Personal Registrado Real']}** empleados. Alcanza exacto, pero no soportarás los días de descanso. Lo ideal es **{row['Planta Mínima (Con Descansos)']}**.")
-                    alertas_lanzadas += 1
-            if alertas_lanzadas == 0:
-                st.success("🎉 **¡Estructura Perfecta!** Tu planta cubre turnos y descansos sin problema.")
-
 
 # =========================================================
 # 4. MOTOR DE ASIGNACIÓN DINÁMICA POR PATRONES
@@ -255,8 +242,7 @@ def calcular_horas_y_recargos(ini_str, fin_str):
     min_fin = t_fin.hour * 60 + t_fin.minute
     minutos_totales = (min_fin - min_ini) if min_fin >= min_ini else ((1440 - min_ini) + min_fin)
     total_horas = minutos_totales / 60.0
-    
-    horas_extras = max(0.0, total_horas - 7.0) # Reforma 7h
+    horas_extras = max(0.0, total_horas - 7.0)
     
     minutos_nocturnos = 0
     m_actual = min_ini
@@ -278,7 +264,6 @@ def generar_malla_dinamica(inicio, fin, df_personal, df_turnos, df_rotaciones, d
     filas = []
     ayer_fin = {row["Grupo"]: "OFF" for _, row in df_personal.iterrows()}
     
-    # Procesar diccionario de rotaciones
     dict_rot = {}
     if not df_rotaciones.empty:
         for _, row in df_rotaciones.iterrows():
@@ -292,9 +277,9 @@ def generar_malla_dinamica(inicio, fin, df_personal, df_turnos, df_rotaciones, d
         
         for _, p in df_personal.iterrows():
             cedula, nombre, grupo, cargo = p.get("Cedula", "N/A"), p["Nombre"], p["Grupo"], p["Cargo"]
+            zona = p.get("Zona", "General")
             turno_hoy, ini_hoy, fin_hoy = "DESCANSO", "OFF", "OFF"
             
-            # --- EVALUACIÓN DE NOVEDADES ---
             novedad_activa = None
             if not df_novedades.empty:
                 for _, nov in df_novedades[df_novedades["Nombre"] == nombre].iterrows():
@@ -304,14 +289,12 @@ def generar_malla_dinamica(inicio, fin, df_personal, df_turnos, df_rotaciones, d
                             break
                     except: pass
 
-            # --- LÓGICA DE ASIGNACIÓN POR PATRÓN ---
             if novedad_activa:
                 turno_hoy = novedad_activa
             else:
                 if grupo in dict_rot and len(dict_rot[grupo]["patron"]) > 0:
                     patron = dict_rot[grupo]["patron"]
                     fase_ini = dict_rot[grupo]["fase"]
-                    # Matemática cíclica del patrón
                     idx_hoy = (delta_dias + fase_ini) % len(patron)
                     turno_propuesto = patron[idx_hoy]
                     
@@ -330,7 +313,7 @@ def generar_malla_dinamica(inicio, fin, df_personal, df_turnos, df_rotaciones, d
                 else:
                     turno_hoy = "SIN ROTACIÓN"
             
-            # --- EDITOR MANUAL (SOBREESCRIBE) ---
+            # --- EDITOR MANUAL ---
             if "ajustes_manuales_grn" in st.session_state and (nombre, fecha_str) in st.session_state.ajustes_manuales_grn:
                 turno_manual = st.session_state.ajustes_manuales_grn[(nombre, fecha_str)]
                 turno_hoy = turno_manual
@@ -345,7 +328,7 @@ def generar_malla_dinamica(inicio, fin, df_personal, df_turnos, df_rotaciones, d
             ayer_fin[grupo] = fin_hoy
             
             filas.append({
-                "Fecha": fecha.strftime('%Y-%m-%d'), "Cedula": cedula, "Nombre": nombre, "Grupo": grupo, "Cargo": cargo,
+                "Fecha": fecha.strftime('%Y-%m-%d'), "Cedula": cedula, "Nombre": nombre, "Zona": zona, "Grupo": grupo, "Cargo": cargo,
                 "Turno": turno_hoy, "Inicio": ini_hoy, "Fin": fin_hoy,
                 "Hrs Prog": h_tot, "Hrs Extras": h_ext, "Recargos Noct": h_noc
             })
@@ -385,7 +368,7 @@ def pantalla_mallas_green():
     if "ajustes_manuales_grn" not in st.session_state: st.session_state.ajustes_manuales_grn = {}
     
     st.markdown("## 📅 Mallas de Operaciones (Greenmovil)")
-    st.info("Generación de turnos basada en patrones de rotación con validación de ausentismos y coberturas.")
+    st.info("Generación automatizada por Patrones de Rotación y Auditoría por Zonas.")
     
     df_pers = cargar_tabla("green_personal")
     df_turnos = cargar_tabla("green_turnos")
@@ -393,6 +376,7 @@ def pantalla_mallas_green():
     df_rot = cargar_tabla("green_rotaciones")
     
     if not df_turnos.empty and "Requeridos" not in df_turnos.columns: df_turnos["Requeridos"] = 1
+    if not df_turnos.empty and "Zona" not in df_turnos.columns: df_turnos.insert(4, "Zona", "General")
     
     if df_pers.empty or df_turnos.empty or df_rot.empty:
         st.warning("⚠️ Asegúrate de registrar personal, configurar turnos y crear los Patrones de Rotación en el Parametrizador.")
@@ -412,18 +396,22 @@ def pantalla_mallas_green():
         st.write("---")
         st.subheader("📋 Explorador de Mallas Operativas")
         
-        cargos_presentes = ["General (Toda la Planta)"] + sorted(list(df_malla["Cargo"].unique()))
-        vista_sel = st.selectbox("👁️ Filtrar Vista de Malla por Cargo:", cargos_presentes)
+        c1_filtro, c2_filtro = st.columns(2)
+        zonas_presentes = ["Todas las Zonas"] + sorted(list(df_malla["Zona"].unique()))
+        cargos_presentes = ["Todos los Cargos"] + sorted(list(df_malla["Cargo"].unique()))
         
-        if vista_sel == "General (Toda la Planta)": df_vista = df_malla
-        else: df_vista = df_malla[df_malla["Cargo"] == vista_sel]
+        zona_sel = c1_filtro.selectbox("📍 Filtrar por Zona:", zonas_presentes)
+        cargo_sel = c2_filtro.selectbox("💼 Filtrar por Cargo:", cargos_presentes)
+        
+        df_vista = df_malla.copy()
+        if zona_sel != "Todas las Zonas": df_vista = df_vista[df_vista["Zona"] == zona_sel]
+        if cargo_sel != "Todos los Cargos": df_vista = df_vista[df_vista["Cargo"] == cargo_sel]
             
-        pivot = df_vista.pivot(index=["Cargo", "Grupo", "Cedula", "Nombre"], columns="Fecha", values="Turno").fillna("DESCANSO")
+        pivot = df_vista.pivot(index=["Zona", "Cargo", "Grupo", "Nombre"], columns="Fecha", values="Turno").fillna("DESCANSO")
         st.dataframe(style_malla_green(pivot), use_container_width=True)
         
         st.write("---")
         st.subheader("🛠️ Gestor de Coberturas Manuales")
-        st.caption("Usa este panel para asignar reemplazos cuando la auditoría muestre faltantes por novedades.")
         with st.expander("🔍 Forzar cambio o cobertura en Malla", expanded=False):
             c_f1, c_f2 = st.columns(2)
             f_libre_sel = c_f1.selectbox("Seleccione la Fecha:", list(pivot.columns), key="f_libre_dropdown_grn")
@@ -435,14 +423,15 @@ def pantalla_mallas_green():
         
         auditoria = df_vista.groupby(["Fecha", "Turno"]).size().unstack(fill_value=0)
         
-        if vista_sel == "General (Toda la Planta)":
+        if zona_sel == "Todas las Zonas" and cargo_sel == "Todos los Cargos":
             alertas_cobertura = 0
             for col in auditoria.columns:
                 if col in df_turnos["Nombre"].values:
-                    requerido = df_turnos[df_turnos["Nombre"] == col]["Requeridos"].values[0]
+                    # Sumamos el requerimiento total de ese turno en todas las zonas
+                    requerido = df_turnos[df_turnos["Nombre"] == col]["Requeridos"].sum()
                     dias_deficit = auditoria[auditoria[col] < requerido].index
                     if not dias_deficit.empty:
-                        st.warning(f"📉 **Déficit en Turno '{col}':** La meta es {requerido} personas, pero hay falta de personal en {len(dias_deficit)} días (Novedades o Descansos simultáneos).")
+                        st.warning(f"📉 **Déficit en Turno '{col}':** La meta es {requerido} personas, pero hay falta de personal en {len(dias_deficit)} días (Domingos u otros Descansos / Novedades). Recuerda asignar a un Operador SENIOR para cubrir.")
                         alertas_cobertura += 1
             if alertas_cobertura == 0:
                 st.success("✅ **Cobertura Perfecta:** Todos los turnos cumplen con la meta de personal requerido.")
@@ -451,12 +440,6 @@ def pantalla_mallas_green():
         st.dataframe(auditoria, use_container_width=True)
 
         st.write("---")
-        st.subheader("💰 Resumen de Nómina y Reforma Laboral (7h)")
-        resumen = df_vista.groupby(["Cargo", "Grupo", "Cedula", "Nombre"])[["Hrs Prog", "Hrs Extras", "Recargos Noct"]].sum().reset_index()
+        st.subheader("💰 Resumen de Nómina (Reforma 7h)")
+        resumen = df_vista.groupby(["Zona", "Cargo", "Grupo", "Cedula", "Nombre"])[["Hrs Prog", "Hrs Extras", "Recargos Noct"]].sum().reset_index()
         st.dataframe(resumen, use_container_width=True)
-        
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer: 
-            df_vista.to_excel(writer, sheet_name="Detalle_Operacion", index=False)
-            resumen.to_excel(writer, sheet_name="Nomina_Consolidada", index=False)
-        st.download_button("📥 Descargar Reporte de la Vista Actual (.xlsx)", output.getvalue(), f"Reporte_{vista_sel}_{date.today()}.xlsx", key="dw_grn_m")
