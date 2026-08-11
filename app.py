@@ -59,16 +59,16 @@ if empresa_actual == "Greenmovil SAS":
     PRIMARY_COLOR = "#145a4f"
     SIDEBAR_BG = "#145a4f"
     SIDEBAR_TEXT = "#FFFFFF" 
-    APP_BG = "#F2FBF7"       
+    APP_BG = "#FFFFFF"  # <-- Fondo Blanco Puro para que el logo se fusione
     BTN_GRADIENT = "linear-gradient(135deg, #0d3d35 0%, #145a4f 100%)" 
     BTN_SHADOW = "rgba(20, 90, 79, 0.4)"
     CARD_GRADIENT = "linear-gradient(135deg, #0d3d35 0%, #145a4f 100%)"
 else:
-    # 🔵 TEMA CABLEMOVIL / GENÉRICO (Blanco y Azul Marino)
+    # 🔵 TEMA CABLEMOVIL / GENÉRICO / LOGIN
     PRIMARY_COLOR = "#1E3D59"
     SIDEBAR_BG = "#FFFFFF"
     SIDEBAR_TEXT = "#1E3D59"
-    APP_BG = "#F4F7F6"
+    APP_BG = "#FFFFFF"  # <-- Fondo Blanco Puro para que el logo se fusione
     BTN_GRADIENT = "linear-gradient(135deg, #1E3D59 0%, #3a6073 100%)"
     BTN_SHADOW = "rgba(30, 61, 89, 0.4)"
     CARD_GRADIENT = "linear-gradient(135deg, #1E3D59 0%, #3a6073 100%)"
@@ -100,7 +100,7 @@ st.markdown(f"""
     
     /* Caja de subida de archivos adaptada al tema */
     [data-testid="stSidebar"] [data-testid="stFileUploader"] {{
-        background-color: rgba(255, 255, 255, 0.05) !important;
+        background-color: rgba(0, 0, 0, 0.02) !important;
         padding: 15px;
         border-radius: 12px;
         border: 2px dashed {SIDEBAR_TEXT} !important;
@@ -136,6 +136,7 @@ st.markdown(f"""
         border: 1.5px solid #d1d5db;
         padding: 12px 15px;
         color: #17202A !important;
+        background-color: #FFFFFF !important;
     }}
     .stTextInput>div>div>input:focus {{
         border-color: {PRIMARY_COLOR};
