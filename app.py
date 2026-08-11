@@ -6,7 +6,7 @@ from datetime import datetime, date
 
 # --- IMPORTACIÓN DE MOTORES LÓGICOS ---
 try:
-    from logic_greenmovil import pantalla_personal_green, pantalla_programador_green
+    from logic_greenmovil import pantalla_personal_green, pantalla_parametrizador_green, pantalla_mallas_green
 except ImportError:
     st.error("⚠️ No se encontró 'logic_greenmovil.py'.")
 
@@ -160,7 +160,7 @@ def modulo_inicio():
         except:
             total_emp = "0"
     else:
-        total_emp = "Pendiente Configurar BD"
+        total_emp = "Módulo Dinámico"
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("👷 Personal Registrado", total_emp)
@@ -244,13 +244,15 @@ else:
         st.markdown(f"<h4 style='text-align:center;'>{st.session_state.empresa_seleccionada}</h4>", unsafe_allow_html=True)
         st.divider()
         
-        # MENÚ DE NAVEGACIÓN
-        menu = st.radio("Navegación del Sistema", [
-            "🏠 Inicio", 
-            "👥 Personal", 
-            "🔧 Prog. Técnicos", 
-            "🚀 Prog. Abordaje"
-        ])
+        # --- MENÚ DINÁMICO SEGÚN LA EMPRESA ---
+        if st.session_state.empresa_seleccionada == "Cablemovil SAS":
+            opciones_menu = ["🏠 Inicio", "👥 Personal", "🔧 Prog. Técnicos", "🚀 Prog. Abordaje"]
+        elif st.session_state.empresa_seleccionada == "Greenmovil SAS":
+            opciones_menu = ["🏠 Inicio", "👥 Personal", "⚙️ Parametrizador", "📅 Mallas Operaciones"]
+        else:
+            opciones_menu = ["🏠 Inicio"]
+            
+        menu = st.radio("Navegación del Sistema", opciones_menu)
         
         st.divider()
         if st.button("🔄 Cambiar de Empresa"):
@@ -265,27 +267,17 @@ else:
 
     # --- RUTEO DE LÓGICA SEGÚN EMPRESA Y MENÚ ---
     
-    # 🏠 INICIO
     if menu == "🏠 Inicio": 
         modulo_inicio()
         
-    # 👥 PERSONAL
-    elif menu == "👥 Personal": 
-        if st.session_state.empresa_seleccionada == "Cablemovil SAS":
-            pantalla_personal()
-        elif st.session_state.empresa_seleccionada == "Greenmovil SAS":
-            pantalla_personal_green() 
+    # --- CABLEMOVIL SAS ---
+    elif st.session_state.empresa_seleccionada == "Cablemovil SAS":
+        if menu == "👥 Personal": pantalla_personal()
+        elif menu == "🔧 Prog. Técnicos": pantalla_programador()
+        elif menu == "🚀 Prog. Abordaje": pantalla_abordaje()
             
-    # 🔧 PROG. TÉCNICOS
-    elif menu == "🔧 Prog. Técnicos": 
-        if st.session_state.empresa_seleccionada == "Cablemovil SAS":
-            pantalla_programador()
-        elif st.session_state.empresa_seleccionada == "Greenmovil SAS":
-            pantalla_programador_green() 
-            
-    # 🚀 PROG. ABORDAJE
-    elif menu == "🚀 Prog. Abordaje":
-        if st.session_state.empresa_seleccionada == "Cablemovil SAS":
-            pantalla_abordaje()
-        elif st.session_state.empresa_seleccionada == "Greenmovil SAS":
-            st.warning("🛠️ El módulo de abordaje para Greenmovil SAS no aplica o está en desarrollo.")
+    # --- GREENMOVIL SAS ---
+    elif st.session_state.empresa_seleccionada == "Greenmovil SAS":
+        if menu == "👥 Personal": pantalla_personal_green()
+        elif menu == "⚙️ Parametrizador": pantalla_parametrizador_green()
+        elif menu == "📅 Mallas Operaciones": pantalla_mallas_green()
