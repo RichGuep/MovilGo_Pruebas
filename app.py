@@ -28,7 +28,6 @@ LOGO_MÓVILGO = f"{URL_BASE}MovilGo.png"
 CONFIG_FILE = "config_estructural.json"
 
 # --- INICIALIZACIÓN DE VARIABLES DE SESIÓN ---
-if 'splash_done' not in st.session_state: st.session_state.splash_done = False
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 if 'empresa_seleccionada' not in st.session_state: st.session_state.empresa_seleccionada = None
 
@@ -61,7 +60,7 @@ if empresa_actual == "Greenmovil SAS":
     SIDEBAR_BG = "#145a4f"
     SIDEBAR_TEXT = "#FFFFFF" 
     APP_BG = "#F2FBF7"       
-    BTN_GRADIENT = "linear-gradient(135deg, #0d3d35 0%, #145a4f 100%)" # Verde más oscuro al corporativo
+    BTN_GRADIENT = "linear-gradient(135deg, #0d3d35 0%, #145a4f 100%)" 
     BTN_SHADOW = "rgba(20, 90, 79, 0.4)"
     CARD_GRADIENT = "linear-gradient(135deg, #0d3d35 0%, #145a4f 100%)"
 else:
@@ -167,13 +166,22 @@ st.markdown(f"""
         text-align: center;
         transition: 0.5s ease;
     }}
+    
+    /* Estilos del Login */
     .login-title {{
         text-align: center;
         color: {PRIMARY_COLOR};
-        font-weight: 800;
+        font-weight: 900;
         margin-top: 15px;
         margin-bottom: 5px;
-        font-size: 2.2rem;
+        font-size: 3.2rem;
+    }}
+    .login-subtitle {{
+        text-align: center;
+        color: #666;
+        font-size: 1.2rem;
+        font-weight: 500;
+        margin-bottom: 30px;
     }}
     </style>
     """, unsafe_allow_html=True)
@@ -207,32 +215,18 @@ def modulo_inicio():
     st.subheader("🇨🇴 Contexto Legal Global: Reforma Laboral 2026")
     st.info("📉 **Reducción de la Jornada Semanal:** Para el año 2026 la jornada ordinaria máxima es de 42 horas semanales.")
 
-
-# --- PANTALLA 1: SPLASH (BIENVENIDA) ---
-if not st.session_state.splash_done:
-    _, splash_center, _ = st.columns([1, 2, 1])
-    with splash_center:
-        st.markdown('<div style="text-align:center; margin-top:10vh;">', unsafe_allow_html=True)
-        _, img_splash, _ = st.columns([1, 1.5, 1])
-        with img_splash: st.image(LOGO_MÓVILGO, use_container_width=True)
-        st.markdown("<h1 style='color:#1E3D59; font-size: 3.5rem; font-weight: 900; margin-top: 20px;'>Optimizer Pro 2026</h1>", unsafe_allow_html=True)
-        st.markdown("<p style='font-size: 1.3rem; color: #666; margin-bottom: 40px;'>Hub Operativo Corporativo</p>", unsafe_allow_html=True)
-        
-        if st.button("INGRESAR AL PORTAL", use_container_width=True):
-            st.session_state.splash_done = True
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
-
-# --- PANTALLA 2: LOGIN ---
-elif not st.session_state.logged_in:
+# --- PANTALLA 1: LOGIN (Directo, sin Splash) ---
+if not st.session_state.logged_in:
     _, login_center, _ = st.columns([1.5, 2, 1.5])
     with login_center:
-        st.write(""); st.write(""); st.write(""); st.write("")
+        st.write(""); st.write(""); st.write("")
         with st.container():
-            _, img_login, _ = st.columns([1, 1.2, 1])
+            # Agrandamos la columna central para el logo
+            _, img_login, _ = st.columns([1, 1.8, 1])
             with img_login: st.image(LOGO_MÓVILGO, use_container_width=True)
-            st.markdown("<h2 class='login-title'>Acceso Seguro</h2>", unsafe_allow_html=True)
-            st.markdown("<p style='text-align:center; color:#666; margin-bottom: 25px;'>Ingresa tus credenciales administrativas</p>", unsafe_allow_html=True)
+            
+            st.markdown("<h1 class='login-title'>Optimizer Pro 2026</h1>", unsafe_allow_html=True)
+            st.markdown("<p class='login-subtitle'>Software para la gestión de turnos</p>", unsafe_allow_html=True)
             
             u = st.text_input("👤 Nombre de Usuario", placeholder="Ej: admin")
             p = st.text_input("🔒 Contraseña", type="password", placeholder="••••••••")
@@ -245,7 +239,7 @@ elif not st.session_state.logged_in:
                 else:
                     st.error("❌ Credenciales incorrectas. Por favor, intenta de nuevo.")
 
-# --- PANTALLA 3: SELECCIÓN DE EMPRESA ---
+# --- PANTALLA 2: SELECCIÓN DE EMPRESA ---
 elif st.session_state.empresa_seleccionada is None:
     st.markdown("<h2 class='login-title' style='margin-top: 5vh; font-size: 3rem;'>🏢 Seleccione el Entorno Operativo</h2>", unsafe_allow_html=True)
     st.markdown("<p style='text-align:center; color:#666; margin-bottom: 50px; font-size: 1.2rem;'>¿Qué operación desea gestionar hoy?</p>", unsafe_allow_html=True)
@@ -266,7 +260,7 @@ elif st.session_state.empresa_seleccionada is None:
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
-# --- PANTALLA 4: INTERIOR DE LA APLICACIÓN (SEGÚN EMPRESA) ---
+# --- PANTALLA 3: INTERIOR DE LA APLICACIÓN (SEGÚN EMPRESA) ---
 else:
     with st.sidebar:
         st.write("")
@@ -291,7 +285,6 @@ else:
             
         if st.button("🚪 Cerrar Sesión"):
             st.session_state.logged_in = False
-            st.session_state.splash_done = False
             st.session_state.empresa_seleccionada = None
             st.rerun()
 
