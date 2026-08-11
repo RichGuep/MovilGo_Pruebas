@@ -27,7 +27,7 @@ URL_BASE = "https://raw.githubusercontent.com/RichGuep/movilgo/main/"
 LOGO_MÓVILGO = f"{URL_BASE}MovilGo.png"
 CONFIG_FILE = "config_estructural.json"
 
-# --- INICIALIZACIÓN DE VARIABLES DE SESIÓN (Debe ir antes del CSS) ---
+# --- INICIALIZACIÓN DE VARIABLES DE SESIÓN ---
 if 'splash_done' not in st.session_state: st.session_state.splash_done = False
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 if 'empresa_seleccionada' not in st.session_state: st.session_state.empresa_seleccionada = None
@@ -56,23 +56,23 @@ if 'config_personal' not in st.session_state:
 empresa_actual = st.session_state.empresa_seleccionada
 
 if empresa_actual == "Greenmovil SAS":
-    # 🟢 TEMA GREENMOVIL (Esmeralda y Cobre)
-    SIDEBAR_BG = "#0B5345"  # Verde Esmeralda Profundo
-    SIDEBAR_TEXT = "#FFFFFF" # Letra Blanca
-    APP_BG = "#F2FBF7"       # Fondo general menta muy claro
-    BTN_GRADIENT = "linear-gradient(135deg, #D35400 0%, #E67E22 100%)" # Botones Cobre/Naranja (Contraste perfecto)
-    BTN_SHADOW = "rgba(211, 84, 0, 0.4)"
-    CARD_GRADIENT = "linear-gradient(135deg, #0B5345 0%, #1ABC9C 100%)"
-    PRIMARY_COLOR = "#0B5345"
+    # 🟢 TEMA GREENMOVIL (Verde Corporativo Institucional)
+    PRIMARY_COLOR = "#145a4f"
+    SIDEBAR_BG = "#145a4f"
+    SIDEBAR_TEXT = "#FFFFFF" 
+    APP_BG = "#F2FBF7"       
+    BTN_GRADIENT = "linear-gradient(135deg, #0d3d35 0%, #145a4f 100%)" # Verde más oscuro al corporativo
+    BTN_SHADOW = "rgba(20, 90, 79, 0.4)"
+    CARD_GRADIENT = "linear-gradient(135deg, #0d3d35 0%, #145a4f 100%)"
 else:
     # 🔵 TEMA CABLEMOVIL / GENÉRICO (Blanco y Azul Marino)
+    PRIMARY_COLOR = "#1E3D59"
     SIDEBAR_BG = "#FFFFFF"
     SIDEBAR_TEXT = "#1E3D59"
     APP_BG = "#F4F7F6"
     BTN_GRADIENT = "linear-gradient(135deg, #1E3D59 0%, #3a6073 100%)"
     BTN_SHADOW = "rgba(30, 61, 89, 0.4)"
     CARD_GRADIENT = "linear-gradient(135deg, #1E3D59 0%, #3a6073 100%)"
-    PRIMARY_COLOR = "#1E3D59"
 
 st.markdown(f"""
     <style>
