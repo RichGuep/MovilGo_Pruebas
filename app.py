@@ -15,9 +15,6 @@ try:
 except ImportError:
     st.error("⚠️ No se encontró 'logic_programador.py' (Motor de Cablemovil).")
 
-# NOTA: Próximamente importaremos aquí el motor de abordaje:
-# from logic_greenmovil import pantalla_abordaje_green
-
 # --- 1. CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
     page_title="MovilGo - Hub Corporativo", 
@@ -247,7 +244,7 @@ else:
         st.markdown(f"<h4 style='text-align:center;'>{st.session_state.empresa_seleccionada}</h4>", unsafe_allow_html=True)
         st.divider()
         
-        # MENÚ ACTUALIZADO CON LOS DOS TIPOS DE PROGRAMACIÓN
+        # MENÚ DE NAVEGACIÓN
         menu = st.radio("Navegación del Sistema", [
             "🏠 Inicio", 
             "👥 Personal", 
@@ -267,35 +264,28 @@ else:
             st.rerun()
 
     # --- RUTEO DE LÓGICA SEGÚN EMPRESA Y MENÚ ---
+    
+    # 🏠 INICIO
     if menu == "🏠 Inicio": 
         modulo_inicio()
         
+    # 👥 PERSONAL
     elif menu == "👥 Personal": 
         if st.session_state.empresa_seleccionada == "Cablemovil SAS":
             pantalla_personal()
         elif st.session_state.empresa_seleccionada == "Greenmovil SAS":
-            st.info("🛠️ El módulo de personal para Greenmovil SAS está en construcción.")
+            pantalla_personal_green() 
             
+    # 🔧 PROG. TÉCNICOS
     elif menu == "🔧 Prog. Técnicos": 
         if st.session_state.empresa_seleccionada == "Cablemovil SAS":
             pantalla_programador()
         elif st.session_state.empresa_seleccionada == "Greenmovil SAS":
-            st.warning("🛠️ El módulo técnico para Greenmovil SAS está en desarrollo.")
+            pantalla_programador_green() 
             
+    # 🚀 PROG. ABORDAJE
     elif menu == "🚀 Prog. Abordaje":
         if st.session_state.empresa_seleccionada == "Cablemovil SAS":
             pantalla_abordaje()
         elif st.session_state.empresa_seleccionada == "Greenmovil SAS":
-            st.warning("🛠️ El módulo de abordaje para Greenmovil SAS está en desarrollo.")
-
-elif menu == "👥 Personal": 
-        if st.session_state.empresa_seleccionada == "Cablemovil SAS":
-            pantalla_personal()
-        elif st.session_state.empresa_seleccionada == "Greenmovil SAS":
-            pantalla_personal_green() # 👉 Reemplazado
-            
-    elif menu == "🔧 Prog. Técnicos": 
-        if st.session_state.empresa_seleccionada == "Cablemovil SAS":
-            pantalla_programador()
-        elif st.session_state.empresa_seleccionada == "Greenmovil SAS":
-            pantalla_programador_green() # 👉 Reemplazado
+            st.warning("🛠️ El módulo de abordaje para Greenmovil SAS no aplica o está en desarrollo.")
