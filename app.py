@@ -6,6 +6,11 @@ from datetime import datetime, date
 
 # --- IMPORTACIÓN DE MOTORES LÓGICOS ---
 try:
+    from logic_greenmovil import pantalla_personal_green, pantalla_programador_green
+except ImportError:
+    st.error("⚠️ No se encontró 'logic_greenmovil.py'.")
+
+try:
     from logic_programador import pantalla_programador, pantalla_personal, cargar_excel, pantalla_abordaje
 except ImportError:
     st.error("⚠️ No se encontró 'logic_programador.py' (Motor de Cablemovil).")
@@ -282,3 +287,15 @@ else:
             pantalla_abordaje()
         elif st.session_state.empresa_seleccionada == "Greenmovil SAS":
             st.warning("🛠️ El módulo de abordaje para Greenmovil SAS está en desarrollo.")
+
+elif menu == "👥 Personal": 
+        if st.session_state.empresa_seleccionada == "Cablemovil SAS":
+            pantalla_personal()
+        elif st.session_state.empresa_seleccionada == "Greenmovil SAS":
+            pantalla_personal_green() # 👉 Reemplazado
+            
+    elif menu == "🔧 Prog. Técnicos": 
+        if st.session_state.empresa_seleccionada == "Cablemovil SAS":
+            pantalla_programador()
+        elif st.session_state.empresa_seleccionada == "Greenmovil SAS":
+            pantalla_programador_green() # 👉 Reemplazado
