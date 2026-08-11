@@ -95,6 +95,11 @@ def pantalla_parametrizador_green():
         st.caption("Vincula cada turno al Cargo correspondiente y define cuántas personas se requieren (Meta Cobertura).")
         
         df_turnos = cargar_tabla("green_turnos")
+        
+        # PARCHE DE SEGURIDAD: Si la BD es vieja y no tiene 'Requeridos', se lo creamos
+        if not df_turnos.empty and "Requeridos" not in df_turnos.columns:
+            df_turnos["Requeridos"] = 1
+            
         if df_turnos.empty:
             df_turnos = pd.DataFrame({
                 "Nombre": ["Mañana Control", "Tarde Auxiliar", "Oficina Inspector"], 
@@ -161,6 +166,10 @@ def pantalla_parametrizador_green():
         df_pers_diag = cargar_tabla("green_personal")
         df_turnos_diag = cargar_tabla("green_turnos")
         
+        # PARCHE: Si la BD es vieja, creamos la columna al vuelo para el diagnóstico
+        if not df_turnos_diag.empty and "Requeridos" not in df_turnos_diag.columns:
+            df_turnos_diag["Requeridos"] = 1
+        
         if df_pers_diag.empty or df_turnos_diag.empty:
             st.info("💡 Registra personal y configura los turnos para ver el diagnóstico matemático de tu planta.")
         else:
@@ -168,7 +177,6 @@ def pantalla_parametrizador_green():
             cargos_turnos = df_turnos_diag["Cargo Aplicable"].unique()
             
             for cargo in cargos_turnos:
-                # Sumamos la cantidad total de personas requeridas al día para ese cargo
                 req_diario = df_turnos_diag[df_turnos_diag["Cargo Aplicable"] == cargo]["Requeridos"].sum()
                 
                 if str(cargo).strip().upper() == "TODOS":
@@ -176,8 +184,6 @@ def pantalla_parametrizador_green():
                 else:
                     planta_actual = len(df_pers_diag[df_pers_diag["Cargo"].str.contains(str(cargo), case=False, na=False)])
                     
-                # Matemática de Mallas: Para cubrir turnos los 7 días (asumiendo 1 día de descanso a la semana por ley)
-                # se necesita el requerimiento diario multiplicado por 7/6 (~1.16).
                 planta_minima_saludable = math.ceil(req_diario * (7/6))
                 
                 estado = "✅ ÓPTIMO"
@@ -197,7 +203,6 @@ def pantalla_parametrizador_green():
             df_diag = pd.DataFrame(diagnostico)
             st.dataframe(df_diag, use_container_width=True)
             
-            # --- Emisión de Alertas ---
             st.markdown("#### 🔍 Conclusiones del Sistema:")
             alertas_lanzadas = 0
             for _, row in df_diag.iterrows():
@@ -205,12 +210,11 @@ def pantalla_parametrizador_green():
                     st.error(f"🚨 **Alerta Crítica en {row['Cargo / Rol']}:** Tienes solo **{row['Personal Registrado Real']}** empleados en planta, pero los turnos exigen **{row['Requiere x Día']}** al mismo tiempo. Es matemáticamente imposible operar tu catálogo.")
                     alertas_lanzadas += 1
                 elif "MODERADO" in row["Estado de Cobertura"]:
-                    st.warning(f"⚠️ **Alerta Preventiva en {row['Cargo / Rol']}:** Tienes **{row['Personal Registrado Real']}** empleados para cubrir **{row['Requiere x Día']}** cupos diarios. Alcanza exacto, pero cuando alguien tome su día de descanso semanal o se incapacite, tendrás huecos en la operación. Lo ideal para operar sin deudas es tener **{row['Planta Mínima (Con Descansos)']}** empleados en planta.")
+                    st.warning(f"⚠️ **Alerta Preventiva en {row['Cargo / Rol']}:** Tienes **{row['Personal Registrado Real']}** empleados para cubrir **{row['Requiere x Día']}** cupos diarios. Alcanza exacto, pero cuando alguien tome su día de descanso semanal o se incapacite, tendrás huecos en la operación. Lo ideal es tener **{row['Planta Mínima (Con Descansos)']}** empleados.")
                     alertas_lanzadas += 1
                     
             if alertas_lanzadas == 0:
-                st.success("🎉 **¡Estructura Perfecta!** Tu planta de personal está correctamente dimensionada para cubrir todos los turnos diarios y absorber los descansos de ley sin generar vacíos operativos.")
-
+                st.success("🎉 **¡Estructura Perfecta!** Tu planta de personal está correctamente dimensionada.")
 
 # =========================================================
 # 4. MOTOR DE ASIGNACIÓN DINÁMICA (CON NOVEDADES)
@@ -356,6 +360,10 @@ def pantalla_mallas_green():
     df_pers = cargar_tabla("green_personal")
     df_turnos = cargar_tabla("green_turnos")
     df_nov = cargar_tabla("green_novedades")
+    
+    # PARCHE: Asegurar que el DataFrame de turnos tenga 'Requeridos' para la Auditoría
+    if not df_turnos.empty and "Requeridos" not in df_turnos.columns:
+        df_turnos["Requeridos"] = 1
     
     if df_pers.empty or df_turnos.empty:
         st.warning("⚠️ Asegúrate de registrar personal y configurar turnos en el Parametrizador antes de generar la malla.")
