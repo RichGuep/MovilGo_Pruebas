@@ -33,7 +33,7 @@ def guardar_tabla(df, nombre_tabla):
 # =========================================================
 def pantalla_personal_green():
     st.markdown("## 👥 Personal de Operaciones (Greenmovil)")
-    st.info("💡 **NUEVO:** Ahora puedes asignar el personal a zonas operativas específicas (Ej. ZMO III, ZMO V).")
+    st.info("💡 **Configuración Dinámica:** Registra al personal asignando su Cargo y su Zona Operativa.")
     
     st.markdown("### 📥 Carga Masiva desde Excel")
     st.caption("Asegúrate de que tu archivo tenga en la primera fila: **Cedula**, **Nombre**, **Cargo** y **Zona**.")
@@ -65,7 +65,6 @@ def pantalla_personal_green():
 
     st.write("---")
     df_pers = cargar_tabla("green_personal")
-    # Parche por si la tabla vieja no tiene Zona
     if not df_pers.empty and "Zona" not in df_pers.columns: df_pers.insert(3, "Zona", "General")
         
     if df_pers.empty:
@@ -96,8 +95,8 @@ def pantalla_parametrizador_green():
     st.info("Configura la matriz de Zonas, Roles, Turnos y Requerimientos operativos.")
     
     t_turnos, t_rotaciones, t_novedades, t_diagnostico = st.tabs([
-        "🕒 Matriz de Turnos y Zonas", 
-        "🔄 Secuencias de Rotación", 
+        "🕒 Matriz de Turnos", 
+        "🔄 Rotación Semanal", 
         "🌴 Gestor de Novedades", 
         "⚖️ Diagnóstico por Zona"
     ])
@@ -135,18 +134,22 @@ def pantalla_parametrizador_green():
             st.success("✅ Turnos, zonas y requerimientos guardados correctamente.")
 
     with t_rotaciones:
-        st.markdown("### 🔄 Patrones de Rotación por Grupo")
+        st.markdown("### 🔄 Patrones de Rotación Semanal por Grupo")
+        st.caption("Escribe los turnos separados por coma. El sistema mantendrá el turno toda la semana y **saltará al siguiente después del día de descanso**.")
         df_pers_rot = cargar_tabla("green_personal")
         grupos_existentes = df_pers_rot["Grupo"].unique() if not df_pers_rot.empty else []
         
         df_rot = cargar_tabla("green_rotaciones")
+        if not df_rot.empty and "Fase Inicio (Semana)" not in df_rot.columns: 
+            df_rot["Fase Inicio (Semana)"] = df_rot.get("Fase Inicio (Día)", 1)
+            
         rot_data = []
         for g in grupos_existentes:
             match = df_rot[df_rot["Grupo"] == g] if not df_rot.empty else pd.DataFrame()
             if not match.empty:
-                rot_data.append({"Grupo": g, "Patrón de Rotación": match.iloc[0]["Patrón de Rotación"], "Fase Inicio (Día)": match.iloc[0]["Fase Inicio (Día)"]})
+                rot_data.append({"Grupo": g, "Patrón de Rotación": match.iloc[0]["Patrón de Rotación"], "Fase Inicio (Semana)": match.iloc[0]["Fase Inicio (Semana)"]})
             else:
-                rot_data.append({"Grupo": g, "Patrón de Rotación": "TC3 - Control, TC2 - Control, TC1 - Control, DESCANSO", "Fase Inicio (Día)": 1})
+                rot_data.append({"Grupo": g, "Patrón de Rotación": "TC3 - Control, TC2 - Control, TC1 - Control", "Fase Inicio (Semana)": 1})
                 
         if not rot_data:
             st.warning("No hay grupos registrados. Ve a la pestaña 'Personal' primero.")
@@ -157,7 +160,7 @@ def pantalla_parametrizador_green():
                 column_config={
                     "Grupo": st.column_config.TextColumn("Grupo de Trabajo", disabled=True),
                     "Patrón de Rotación": st.column_config.TextColumn("Secuencia (Turnos separados por comas)", required=True),
-                    "Fase Inicio (Día)": st.column_config.NumberColumn("Día de arranque (Fase)", min_value=1, required=True)
+                    "Fase Inicio (Semana)": st.column_config.NumberColumn("Semana de arranque (Fase: 1, 2, 3...)", min_value=1, required=True)
                 }, key="edit_rot_green"
             )
             if st.button("💾 Guardar Patrones de Rotación", key="btn_guar_rot_green"):
@@ -230,7 +233,7 @@ def pantalla_parametrizador_green():
             st.dataframe(df_diag, use_container_width=True)
 
 # =========================================================
-# 4. MOTOR DE ASIGNACIÓN DINÁMICA POR PATRONES
+# 4. MOTOR DE ASIGNACIÓN DINÁMICA POR PATRONES SEMANALES
 # =========================================================
 def calcular_horas_y_recargos(ini_str, fin_str):
     if ini_str == "OFF" or fin_str == "OFF": return 0.0, 0.0, 0.0
@@ -260,7 +263,7 @@ def evaluar_fatiga(turno_ayer_fin, turno_hoy_ini):
     descanso = (1440 - m_fin) + m_ini
     return descanso >= 480
 
-def generar_malla_dinamica(inicio, fin, df_personal, df_turnos, df_rotaciones, df_novedades):
+def generar_malla_dinamica(inicio, fin, df_personal, df_turnos, df_rotaciones, df_novedades, d_descansos):
     filas = []
     ayer_fin = {row["Grupo"]: "OFF" for _, row in df_personal.iterrows()}
     
@@ -268,12 +271,18 @@ def generar_malla_dinamica(inicio, fin, df_personal, df_turnos, df_rotaciones, d
     if not df_rotaciones.empty:
         for _, row in df_rotaciones.iterrows():
             patron = [x.strip() for x in str(row["Patrón de Rotación"]).split(",")]
-            fase = int(row["Fase Inicio (Día)"]) - 1
+            fase = int(row.get("Fase Inicio (Semana)", row.get("Fase Inicio (Día)", 1))) - 1
             dict_rot[row["Grupo"]] = {"patron": patron, "fase": fase}
+            
+    for _, p in df_personal.drop_duplicates("Grupo").iterrows():
+        if p["Grupo"] not in dict_rot:
+            dict_rot[p["Grupo"]] = {"patron": [], "fase": 0}
+    
+    dias_semana = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"]
     
     for fecha in pd.date_range(inicio, fin):
+        dia_n = dias_semana[fecha.weekday()]
         fecha_str = fecha.strftime('%Y-%m-%d')
-        delta_dias = (fecha - pd.to_datetime(inicio)).days
         
         for _, p in df_personal.iterrows():
             cedula, nombre, grupo, cargo = p.get("Cedula", "N/A"), p["Nombre"], p["Grupo"], p["Cargo"]
@@ -284,19 +293,21 @@ def generar_malla_dinamica(inicio, fin, df_personal, df_turnos, df_rotaciones, d
             if not df_novedades.empty:
                 for _, nov in df_novedades[df_novedades["Nombre"] == nombre].iterrows():
                     try:
-                        if pd.to_datetime(nov["Inicio"]) <= fecha <= pd.to_datetime(nov["Fin"]):
+                        if pd.to_datetime(nov["Inicio"]).date() <= fecha.date() <= pd.to_datetime(nov["Fin"]).date():
                             novedad_activa = f"⚠️ {nov['Tipo Novedad']}"
                             break
                     except: pass
 
+            patron = dict_rot[grupo]["patron"]
+
             if novedad_activa:
                 turno_hoy = novedad_activa
+            elif d_descansos.get(grupo) == dia_n:
+                turno_hoy = "DESCANSO"
             else:
-                if grupo in dict_rot and len(dict_rot[grupo]["patron"]) > 0:
-                    patron = dict_rot[grupo]["patron"]
-                    fase_ini = dict_rot[grupo]["fase"]
-                    idx_hoy = (delta_dias + fase_ini) % len(patron)
-                    turno_propuesto = patron[idx_hoy]
+                if len(patron) > 0:
+                    fase_actual = dict_rot[grupo]["fase"] % len(patron)
+                    turno_propuesto = patron[fase_actual]
                     
                     if turno_propuesto.upper() == "DESCANSO":
                         turno_hoy = "DESCANSO"
@@ -309,7 +320,7 @@ def generar_malla_dinamica(inicio, fin, df_personal, df_turnos, df_rotaciones, d
                         else:
                             turno_hoy, ini_hoy, fin_hoy = "RELEVO FATIGA", "08:00", "15:00"
                     else:
-                        turno_hoy = f"⚠️ {turno_propuesto} (No existe)"
+                        turno_hoy = f"⚠️ {turno_propuesto} (No configurado)"
                 else:
                     turno_hoy = "SIN ROTACIÓN"
             
@@ -332,6 +343,12 @@ def generar_malla_dinamica(inicio, fin, df_personal, df_turnos, df_rotaciones, d
                 "Turno": turno_hoy, "Inicio": ini_hoy, "Fin": fin_hoy,
                 "Hrs Prog": h_tot, "Hrs Extras": h_ext, "Recargos Noct": h_noc
             })
+            
+        # AL FINAL DEL DÍA: El grupo que descansó hoy, avanza su fase para mañana
+        for g, d in d_descansos.items():
+            if d == dia_n and len(dict_rot[g]["patron"]) > 0:
+                dict_rot[g]["fase"] = (dict_rot[g]["fase"] + 1) % len(dict_rot[g]["patron"])
+                
     return pd.DataFrame(filas)
 
 def style_malla_green(df_pivot):
@@ -368,7 +385,7 @@ def pantalla_mallas_green():
     if "ajustes_manuales_grn" not in st.session_state: st.session_state.ajustes_manuales_grn = {}
     
     st.markdown("## 📅 Mallas de Operaciones (Greenmovil)")
-    st.info("Generación automatizada por Patrones de Rotación y Auditoría por Zonas.")
+    st.info("Generación automatizada por Patrones de Rotación Semanal y Auditoría por Zonas.")
     
     df_pers = cargar_tabla("green_personal")
     df_turnos = cargar_tabla("green_turnos")
@@ -386,9 +403,17 @@ def pantalla_mallas_green():
     c1, c2 = st.columns(2)
     inicio = c1.date_input("Inicio", date(2026, 7, 1), key="i_grn_m")
     fin = c2.date_input("Fin", date(2026, 12, 31), key="f_grn_m")
+    
+    st.markdown("**Asignar Día de Descanso por Grupo:**")
+    grupos_unicos = df_pers["Grupo"].unique()
+    cols = st.columns(min(len(grupos_unicos), 6) if len(grupos_unicos) > 0 else 1)
+    d_desc = {}
+    dias_semana = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"]
+    for i, g in enumerate(grupos_unicos):
+        d_desc[g] = cols[i % 6].selectbox(f"Descanso {g}", dias_semana, index=6, key=f"d_grn_m_{g}") # Por defecto Domingo (index 6)
         
     if st.button("🚀 GENERAR MALLA CON PATRONES", key="btn_gen_grn_m"):
-        st.session_state.m_base_grn = generar_malla_dinamica(inicio, fin, df_pers, df_turnos, df_rot, df_nov)
+        st.session_state.m_base_grn = generar_malla_dinamica(inicio, fin, df_pers, df_turnos, df_rot, df_nov, d_desc)
         
     if 'm_base_grn' in st.session_state and not st.session_state.m_base_grn.empty:
         df_malla = st.session_state.m_base_grn
@@ -443,3 +468,9 @@ def pantalla_mallas_green():
         st.subheader("💰 Resumen de Nómina (Reforma 7h)")
         resumen = df_vista.groupby(["Zona", "Cargo", "Grupo", "Cedula", "Nombre"])[["Hrs Prog", "Hrs Extras", "Recargos Noct"]].sum().reset_index()
         st.dataframe(resumen, use_container_width=True)
+        
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer: 
+            df_vista.to_excel(writer, sheet_name="Detalle_Operacion", index=False)
+            resumen.to_excel(writer, sheet_name="Nomina_Consolidada", index=False)
+        st.download_button("📥 Descargar Reporte de la Vista Actual (.xlsx)", output.getvalue(), f"Reporte_{vista_sel}_{date.today()}.xlsx", key="dw_grn_m")
