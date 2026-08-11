@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, timedelta, date, time
+from datetime import datetime, date
 import os
 from sqlalchemy import create_engine
 from dotenv import load_dotenv
@@ -32,9 +32,8 @@ def guardar_tabla(df, nombre_tabla):
 # =========================================================
 def pantalla_personal_green():
     st.markdown("## 👥 Personal y Cargos (Greenmovil)")
-    st.info("💡 **Configuración Dinámica:** Aquí puedes crear cualquier cargo, grupo o rol que necesite la empresa.")
+    st.info("💡 **Configuración Dinámica:** Registra a los Técnicos de Control, Auxiliares e Inspectores.")
     
-    # Cargar o inicializar personal
     df_pers = cargar_tabla("green_personal")
     if df_pers.empty:
         df_pers = pd.DataFrame({"Nombre": [""], "Cargo": [""], "Grupo": [""]})
@@ -46,20 +45,19 @@ def pantalla_personal_green():
         use_container_width=True,
         column_config={
             "Nombre": st.column_config.TextColumn("👤 Nombre Completo", required=True),
-            "Cargo": st.column_config.TextColumn("💼 Cargo / Rol", required=True),
+            "Cargo": st.column_config.TextColumn("💼 Cargo (Ej. Inspector)", required=True),
             "Grupo": st.column_config.TextColumn("📦 Grupo de Trabajo", required=True)
         },
         key="edit_pers_green"
     )
     
     if st.button("💾 Guardar Personal", key="btn_guar_pers_green"):
-        # Limpiar filas vacías
         df_edit = df_edit[df_edit["Nombre"].str.strip() != ""]
         guardar_tabla(df_edit, "green_personal")
         st.success(f"✅ ¡{len(df_edit)} empleados registrados exitosamente!")
 
 # =========================================================
-# 3. MOTOR Y PANEL DE PROGRAMACIÓN DINÁMICA
+# 3. MOTOR Y PANEL DE PROGRAMACIÓN DINÁMICA POR ROL
 # =========================================================
 def calcular_horas_y_recargos(ini_str, fin_str):
     if ini_str == "OFF" or fin_str == "OFF": return 0.0, 0.0, 0.0
@@ -74,14 +72,13 @@ def calcular_horas_y_recargos(ini_str, fin_str):
     minutos_totales = (min_fin - min_ini) if min_fin >= min_ini else ((1440 - min_ini) + min_fin)
     total_horas = minutos_totales / 60.0
     
-    # REFORMA LABORAL: Turno de 7h netas (exceso es extra)
     horas_extras = max(0.0, total_horas - 7.0)
     
     minutos_nocturnos = 0
     m_actual = min_ini
-    for _ in range(minutos_totales):
+    for _ in range(int(minutos_totales)):
         min_ciclo = m_actual % 1440
-        if min_ciclo >= 1140 or min_ciclo < 360: minutos_nocturnos += 1  # 19:00 a 06:00
+        if min_ciclo >= 1140 or min_ciclo < 360: minutos_nocturnos += 1
         m_actual += 1
         
     return round(total_horas, 2), round(horas_extras, 2), round(minutos_nocturnos / 60.0, 2)
@@ -94,17 +91,18 @@ def evaluar_fatiga(turno_ayer_fin, turno_hoy_ini):
     m_fin = t_fin.hour * 60 + t_fin.minute
     m_ini = t_ini.hour * 60 + t_ini.minute
     
-    # Tiempo de descanso (si hoy entra al día siguiente)
     descanso = (1440 - m_fin) + m_ini
-    return descanso >= 480  # Mínimo 8 horas (480 minutos) de sueño
+    return descanso >= 480
 
 def generar_malla_dinamica(inicio, fin, df_personal, df_turnos, d_descansos):
     filas = []
-    # Ordenar turnos por hora de inicio para la rotación ascendente
-    df_turnos['min_ini'] = df_turnos['Inicio'].apply(lambda x: datetime.strptime(x, "%H:%M").hour * 60)
-    turnos_ordenados = df_turnos.sort_values('min_ini')['Nombre'].tolist()
     
-    historia_fase = {row["Grupo"]: idx % len(turnos_ordenados) for idx, row in df_personal.drop_duplicates("Grupo").iterrows()}
+    # Pre-calcular minutos de inicio para poder ordenar los turnos cronológicamente
+    df_turnos = df_turnos.copy()
+    df_turnos['min_ini'] = df_turnos['Inicio'].apply(lambda x: datetime.strptime(x, "%H:%M").hour * 60 if x != "OFF" else 0)
+    
+    # Historias independientes por grupo
+    historia_fase = {row["Grupo"]: 0 for _, row in df_personal.drop_duplicates("Grupo").iterrows()}
     ayer_fin = {row["Grupo"]: "OFF" for _, row in df_personal.iterrows()}
     
     dias_semana = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"]
@@ -113,34 +111,47 @@ def generar_malla_dinamica(inicio, fin, df_personal, df_turnos, d_descansos):
         dia_n = dias_semana[fecha.weekday()]
         
         for _, p in df_personal.iterrows():
-            nombre, grupo = p["Nombre"], p["Grupo"]
+            nombre, grupo, cargo = p["Nombre"], p["Grupo"], p["Cargo"]
             turno_hoy = "DESCANSO"
             ini_hoy, fin_hoy = "OFF", "OFF"
             
-            # 1. Verificar si es su día de descanso
+            # 1. Filtrar los turnos que pertenecen EXCLUSIVAMENTE a este cargo (o "Todos")
+            turnos_validos_cargo = df_turnos[
+                (df_turnos["Cargo Aplicable"].str.contains(str(cargo), case=False, na=False)) | 
+                (df_turnos["Cargo Aplicable"].str.strip().str.upper() == "TODOS")
+            ].sort_values('min_ini')
+            
+            lista_nombres_turnos = turnos_validos_cargo['Nombre'].tolist()
+            
+            # 2. Verificar descanso
             if d_descansos.get(grupo) == dia_n:
                 turno_hoy = "DESCANSO"
-                # Al descansar, avanza a la siguiente fase de rotación
-                historia_fase[grupo] = (historia_fase[grupo] + 1) % len(turnos_ordenados)
+                if len(lista_nombres_turnos) > 0:
+                    historia_fase[grupo] = (historia_fase[grupo] + 1) % len(lista_nombres_turnos)
             else:
-                # 2. Asignar turno de su fase actual
-                turno_propuesto = turnos_ordenados[historia_fase[grupo]]
-                datos_t = df_turnos[df_turnos["Nombre"] == turno_propuesto].iloc[0]
-                ini_prop = datos_t["Inicio"]
-                
-                # 3. Control estricto de Fatiga
-                if evaluar_fatiga(ayer_fin[grupo], ini_prop):
-                    turno_hoy = turno_propuesto
-                    ini_hoy, fin_hoy = ini_prop, datos_t["Fin"]
+                # 3. Asignar turno rotativo si existen turnos para su cargo
+                if len(lista_nombres_turnos) > 0:
+                    idx_fase = historia_fase[grupo] % len(lista_nombres_turnos)
+                    turno_propuesto = lista_nombres_turnos[idx_fase]
+                    
+                    datos_t = turnos_validos_cargo.iloc[idx_fase]
+                    ini_prop = datos_t["Inicio"]
+                    
+                    # Control de fatiga
+                    if evaluar_fatiga(ayer_fin[grupo], ini_prop):
+                        turno_hoy = turno_propuesto
+                        ini_hoy, fin_hoy = ini_prop, datos_t["Fin"]
+                    else:
+                        turno_hoy = "RELEVO FATIGA"
+                        ini_hoy, fin_hoy = "08:00", "15:00"
                 else:
-                    turno_hoy = "RELEVO FATIGA"
-                    ini_hoy, fin_hoy = "08:00", "15:00" # Turno seguro por defecto
+                    turno_hoy = "SIN TURNO CONFIGURADO"
             
             h_tot, h_ext, h_noc = calcular_horas_y_recargos(ini_hoy, fin_hoy)
             ayer_fin[grupo] = fin_hoy
             
             filas.append({
-                "Fecha": fecha.strftime('%Y-%m-%d'), "Nombre": nombre, "Grupo": grupo, "Cargo": p["Cargo"],
+                "Fecha": fecha.strftime('%Y-%m-%d'), "Nombre": nombre, "Grupo": grupo, "Cargo": cargo,
                 "Turno": turno_hoy, "Inicio": ini_hoy, "Fin": fin_hoy,
                 "Hrs Prog": h_tot, "Hrs Extras": h_ext, "Recargos Noct": h_noc
             })
@@ -150,23 +161,30 @@ def generar_malla_dinamica(inicio, fin, df_personal, df_turnos, d_descansos):
 def pantalla_programador_green():
     st.markdown("## 🔧 Generador de Mallas (Greenmovil)")
     
-    # --- GESTIÓN DINÁMICA DE TURNOS ---
-    st.markdown("### 🕒 Creador de Turnos Dinámicos")
+    st.markdown("### 🕒 Catálogo de Turnos por Cargo")
+    st.info("Vincula cada turno al Cargo correspondiente. Usa la palabra **Todos** si un turno aplica para cualquier empleado.")
+    
     df_turnos = cargar_tabla("green_turnos")
     if df_turnos.empty:
-        df_turnos = pd.DataFrame({"Nombre": ["Mañana", "Tarde", "Noche"], "Inicio": ["06:00", "13:00", "20:00"], "Fin": ["13:00", "20:00", "06:00"]})
+        df_turnos = pd.DataFrame({
+            "Nombre": ["Mañana Control", "Noche Auxiliar"], 
+            "Inicio": ["06:00", "20:00"], 
+            "Fin": ["13:00", "03:00"],
+            "Cargo Aplicable": ["Técnicos de Control", "Auxiliares"]
+        })
         
     df_edit_t = st.data_editor(
         df_turnos, num_rows="dynamic", use_container_width=True,
         column_config={
             "Nombre": st.column_config.TextColumn("Etiqueta del Turno", required=True),
             "Inicio": st.column_config.TextColumn("Hora Inicio (HH:MM)", required=True),
-            "Fin": st.column_config.TextColumn("Hora Fin (HH:MM)", required=True)
+            "Fin": st.column_config.TextColumn("Hora Fin (HH:MM)", required=True),
+            "Cargo Aplicable": st.column_config.TextColumn("Aplica para (Escribe el Cargo)", required=True)
         }, key="edit_turnos_green"
     )
     if st.button("💾 Guardar Catálogo de Turnos", key="btn_guar_t_green"):
         guardar_tabla(df_edit_t, "green_turnos")
-        st.success("✅ Turnos personalizados guardados.")
+        st.success("✅ Turnos especializados guardados.")
         
     st.write("---")
     df_pers = cargar_tabla("green_personal")
@@ -182,7 +200,7 @@ def pantalla_programador_green():
     fin = c2.date_input("Fin", date(2026, 12, 31), key="f_grn")
     
     st.markdown("**Asignar Día de Descanso por Grupo:**")
-    cols = st.columns(min(len(grupos_unicos), 6))
+    cols = st.columns(min(len(grupos_unicos), 6) if len(grupos_unicos) > 0 else 1)
     d_desc = {}
     dias_semana = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"]
     for i, g in enumerate(grupos_unicos):
@@ -193,11 +211,11 @@ def pantalla_programador_green():
         
         st.write("---")
         st.subheader("📋 Malla Dinámica Generada")
-        pivot = df_malla.pivot(index=["Grupo", "Cargo", "Nombre"], columns="Fecha", values="Turno").fillna("DESCANSO")
+        pivot = df_malla.pivot(index=["Cargo", "Grupo", "Nombre"], columns="Fecha", values="Turno").fillna("DESCANSO")
         st.dataframe(pivot, use_container_width=True)
         
         st.subheader("💰 Resumen de Nómina y Reforma Laboral (7h)")
-        resumen = df_malla.groupby(["Nombre", "Cargo", "Grupo"])[["Hrs Prog", "Hrs Extras", "Recargos Noct"]].sum().reset_index()
+        resumen = df_malla.groupby(["Cargo", "Grupo", "Nombre"])[["Hrs Prog", "Hrs Extras", "Recargos Noct"]].sum().reset_index()
         st.dataframe(resumen, use_container_width=True)
         
         output = io.BytesIO()
